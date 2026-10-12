@@ -1,0 +1,21 @@
+{
+  "_comment": "Lista PARCIAL de ejemplo. Los códigos son provisionales: reemplazarlos por los códigos oficiales de Univalle (Registro Académico) y completar la lista oficial antes de producción. El loader es idempotente (upsert por code).",
+  "version": 1,
+  "programs": [
+    { "code": "ING-SIS", "name": "Ingeniería de Sistemas" },
+    { "code": "ING-ELE", "name": "Ingeniería Electrónica" },
+    { "code": "ING-IND", "name": "Ingeniería Industrial" },
+    { "code": "ING-CIV", "name": "Ingeniería Civil" },
+    { "code": "MED", "name": "Medicina y Cirugía" },
+    { "code": "ENF", "name": "Enfermería" },
+    { "code": "FIS", "name": "Fisioterapia" },
+    { "code": "DER", "name": "Derecho" },
+    { "code": "PSI", "name": "Psicología" },
+    { "code": "ADM", "name": "Administración de Empresas" },
+    { "code": "CON", "name": "Contaduría Pública" },
+    { "code": "LIC-EDF", "name": "Licenciatura en Educación Física y Deportes" },
+    { "code": "ARQ", "name": "Arquitectura" },
+    { "code": "DIS-GRA", "name": "Diseño Gráfico" },
+    { "code": "COM-SOC", "name": "Comunicación Social" }
+  ]
+}

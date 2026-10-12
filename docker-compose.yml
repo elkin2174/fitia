@@ -1,18 +1,24 @@
-version: "3.8"
-
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: fitia_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-fitia_db}
+      TZ: America/Bogota
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Crea fitia_test (pytest) la primera vez que se inicializa el volumen.
+      - ./apps/api/docker/init-test-db.sql:/docker-entrypoint-initdb.d/10-init-test-db.sql:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-fitia_db}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   api:
     build:
@@ -24,9 +30,11 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/fitia_db
+      - DATABASE_URL_DIRECT=postgresql+asyncpg://postgres:postgres@db:5432/fitia_db
       - TZ=America/Bogota
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - ./apps/api:/app
 
