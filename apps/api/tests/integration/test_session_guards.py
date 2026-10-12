@@ -1,35 +1,17 @@
 """HU 2 - Guards de sesión: AC-2-5, NFR-10, NFR-11 (parcial) y expiración deslizante."""
-from collections.abc import Iterator
 from datetime import timedelta
 
 import httpx
 import pytest
-from fastapi import Depends
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import FrozenClock
-from app.main import app
-from app.modules.auth.dependencies import CurrentUser, require_complete_profile
 from app.modules.auth.models import User, UserSession
 from tests.conftest import SeededUser, session_token, with_session
 from tests.fakes import FakeOnboardingStatus
 
 ME_URL = "/api/v1/me"
-PROTECTED_URL = "/api/v1/__test__/perfil-completo"
-
-
-@pytest.fixture
-def protected_route() -> Iterator[str]:
-    """Ruta que solo existe durante la prueba, protegida con el guard S+P."""
-
-    async def _endpoint(user: CurrentUser = Depends(require_complete_profile)) -> dict[str, str]:
-        return {"user_id": str(user.id)}
-
-    app.add_api_route(PROTECTED_URL, _endpoint, methods=["GET"])
-    route = app.router.routes[-1]
-    yield PROTECTED_URL
-    app.router.routes.remove(route)
 
 
 @pytest.fixture

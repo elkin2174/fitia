@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.core.config import get_settings
 from app.core.db import POOLER_CONNECT_ARGS, Base, to_asyncpg_url
 from app.modules.auth import models  # noqa: F401  (registra las tablas en Base.metadata)
+from app.modules.profile import models as profile_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

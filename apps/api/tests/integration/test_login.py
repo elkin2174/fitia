@@ -111,7 +111,7 @@ async def test_ac_2_4_sin_diagnostico_completo_lleva_a_onboarding(
 async def test_ac_2_4_por_defecto_el_diagnostico_se_considera_incompleto(
     client: httpx.AsyncClient, login, verified_user: SeededUser
 ) -> None:
-    # Sin override: se usa PendingOnboardingStatus hasta que exista la HU 4.
+    # Sin override: implementación real (ProfileOnboardingStatus); este usuario no tiene perfil.
     response = await login(verified_user.email)
 
     assert response.json()["next"] == "onboarding"

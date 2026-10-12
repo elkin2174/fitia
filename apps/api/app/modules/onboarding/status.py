@@ -1,6 +1,13 @@
 import uuid
 from abc import ABC, abstractmethod
 
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.clock import Clock, get_clock
+from app.core.db import get_session
+from app.modules.profile.service import ProfileService
+
 
 class OnboardingStatus(ABC):
     """Puerto: ¿el usuario completó el diagnóstico inicial (HU 4)?"""
@@ -9,18 +16,18 @@ class OnboardingStatus(ABC):
     async def is_completed(self, user_id: uuid.UUID) -> bool: ...
 
 
-class PendingOnboardingStatus(OnboardingStatus):
-    """Implementación provisional mientras no exista la tabla `profiles`: nadie lo ha completado."""
+class ProfileOnboardingStatus(OnboardingStatus):
+    """El diagnóstico está completo si el usuario tiene perfil."""
+
+    def __init__(self, profiles: ProfileService) -> None:
+        self._profiles = profiles
 
     async def is_completed(self, user_id: uuid.UUID) -> bool:
-        return False
+        return await self._profiles.has_profile(user_id)
 
 
-_default_status = PendingOnboardingStatus()
-
-
-def get_onboarding_status() -> OnboardingStatus:
-    # PUNTO DE REEMPLAZO (HU 4): devolver una implementación que consulte `profiles`, p. ej.
-    #   def get_onboarding_status(session: AsyncSession = Depends(get_session)) -> OnboardingStatus:
-    #       return ProfileOnboardingStatus(session)
-    return _default_status
+def get_onboarding_status(
+    session: AsyncSession = Depends(get_session), clock: Clock = Depends(get_clock)
+) -> OnboardingStatus:
+    # Lo usan login (`next`), GET /me (`onboarding_completed`) y require_complete_profile.
+    return ProfileOnboardingStatus(ProfileService(session, clock))

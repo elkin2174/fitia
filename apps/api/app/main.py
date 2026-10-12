@@ -6,6 +6,7 @@ from app.core.csrf import require_csrf_header
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.modules.auth.router import router as auth_router
+from app.modules.onboarding.router import router as onboarding_router
 
 configure_logging()
 
@@ -48,4 +49,5 @@ async def api_health():
 # Todas las mutaciones bajo /api/v1 exigen el encabezado anti-CSRF.
 api_v1 = APIRouter(prefix="/api/v1", dependencies=[Depends(require_csrf_header)])
 api_v1.include_router(auth_router)
+api_v1.include_router(onboarding_router)
 app.include_router(api_v1)

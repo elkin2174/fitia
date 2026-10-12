@@ -73,7 +73,9 @@ async def test_ac_3_2_confirmar_elimina_cuenta_datos_e_historial(
 ) -> None:
     account = await create_account()
     before = await user_footprint(account.id)
-    assert before == {"users": 1, "consents": 1, "email_verification_tokens": 2, "sessions": 3}
+    # Cualquier otra tabla con user_id (p. ej. las de HU futuras) debe estar en 0 para esta cuenta.
+    expected = dict.fromkeys(before, 0) | {"users": 1, "consents": 1, "email_verification_tokens": 2, "sessions": 3}
+    assert before == expected
 
     response = await _delete(client, account.sessions[0], json={"confirm": True})
 
@@ -293,7 +295,8 @@ async def test_ac_3_6_registrarse_de_nuevo_crea_una_cuenta_nueva_desde_cero(
     new_id = uuid.UUID(verify.json()["user"]["id"])
 
     assert new_id != old.id
-    assert await user_footprint(new_id) == {
+    footprint = await user_footprint(new_id)
+    assert footprint == dict.fromkeys(footprint, 0) | {
         "users": 1,
         "consents": 1,
         "email_verification_tokens": 1,

@@ -1,7 +1,7 @@
 import asyncio
 import os
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +11,7 @@ import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import Depends
 from sqlalchemy import NullPool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -21,6 +22,7 @@ from app.core.mailer import get_mailer
 from app.core.rate_limit import RateLimiter, get_rate_limiter
 from app.core.security import hash_password
 from app.modules.auth.cookies import SESSION_COOKIE_NAME
+from app.modules.auth.dependencies import CurrentUser, require_complete_profile
 from app.modules.auth.models import User
 from app.modules.onboarding.status import get_onboarding_status
 from app.main import app
@@ -262,3 +264,74 @@ def user_footprint(db: AsyncSession) -> Callable[..., Any]:
         return counts
 
     return _footprint
+
+
+PROTECTED_URL = "/api/v1/__test__/perfil-completo"
+
+
+@pytest.fixture
+def protected_route() -> Iterator[str]:
+    """Ruta que solo existe durante la prueba, protegida con el guard S+P (require_complete_profile)."""
+
+    async def _endpoint(user: CurrentUser = Depends(require_complete_profile)) -> dict[str, str]:
+        return {"user_id": str(user.id)}
+
+    app.add_api_route(PROTECTED_URL, _endpoint, methods=["GET"])
+    route = app.router.routes[-1]
+    yield PROTECTED_URL
+    app.router.routes.remove(route)
+
+
+# --- HU 4: diagnóstico inicial ---------------------------------------------------
+
+COMPLETE_URL = "/api/v1/onboarding/complete"
+QUESTIONNAIRE_URL = "/api/v1/onboarding/questionnaire"
+
+# Payload válido de referencia (días desordenados a propósito: se guardan ordenados).
+VALID_DIAGNOSTIC: dict[str, Any] = {
+    "goal": "strength",
+    "term_weeks": 8,
+    "fitness_level": "beginner",
+    "session_minutes": 30,
+    "training_days": [5, 1, 3],
+    "has_machine_access": True,
+}
+
+
+@dataclass(frozen=True)
+class Student:
+    """Usuario verificado, con sesión y SIN perfil."""
+
+    user: SeededUser
+    token: str
+
+
+@pytest.fixture
+async def student(login: Callable[..., Any], verified_user: SeededUser) -> Student:
+    return Student(user=verified_user, token=session_token(await login(verified_user.email)))
+
+
+@pytest.fixture
+def make_student(make_user: Callable[..., Any], login: Callable[..., Any]) -> Callable[..., Any]:
+    """Crea estudiantes adicionales (correo distinto) con sesión y sin perfil."""
+
+    async def _make(email: str) -> Student:
+        user = await make_user(email)
+        return Student(user=user, token=session_token(await login(email)))
+
+    return _make
+
+
+@pytest.fixture
+def complete_diagnostic(client: httpx.AsyncClient) -> Callable[..., Any]:
+    """POST /onboarding/complete. `raw` envía bytes tal cual (p. ej. b"null" o b"")."""
+
+    async def _complete(token: str, body: Any = VALID_DIAGNOSTIC, *, raw: bytes | None = None) -> httpx.Response:
+        headers = with_session(token)
+        if raw is not None:
+            return await client.post(
+                COMPLETE_URL, content=raw, headers={**headers, "Content-Type": "application/json"}
+            )
+        return await client.post(COMPLETE_URL, json=body, headers=headers)
+
+    return _complete
