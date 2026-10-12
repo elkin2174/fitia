@@ -38,9 +38,25 @@ class Settings(BaseSettings):
     RATE_LIMIT_LOGIN_PER_IP: int = 100
     RATE_LIMIT_LOGIN_PER_EMAIL: int = 5
 
-    GEMINI_API_KEY: str = ""
-    AI_PROVIDER: str = "fake"
+    # IA (ADR-07). Con ENV=production, AI_ENABLED=true exige AI_PROVIDER=gemini y una clave.
     AI_ENABLED: bool = True
+    AI_PROVIDER: Literal["fake", "gemini"] = "fake"
+    GEMINI_API_KEY: str = ""
+    # Vacío = el modelo declarado en el YAML del prompt activo (hoy gemini-3.8-flash).
+    GEMINI_MODEL: str = ""
+    PROMPT_VERSION_WEEKLY_PLAN: str = "v1"
+    AI_TIMEOUT_SECONDS: float = 20
+    AI_TOTAL_BUDGET_SECONDS: float = 40
+    AI_RETRY_MIN_REMAINING_SECONDS: float = 5
+    AI_BREAKER_FAILURES: int = 5
+    AI_BREAKER_WINDOW_SECONDS: float = 60
+    AI_BREAKER_OPEN_SECONDS: float = 30
+
+    # Plan semanal (HU 5)
+    PLAN_MAX_GENERATIONS_PER_WEEK: int = 3  # 1 inicial + 2 regeneraciones
+    PLAN_STALE_SECONDS: int = 90
+    RATE_LIMIT_PLAN_GENERATE_PER_USER: int = 6
+    RATE_LIMIT_PLAN_GENERATE_WINDOW_MINUTES: int = 60
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -49,6 +65,15 @@ class Settings(BaseSettings):
         # ConsoleMailer imprime el enlace con el token: nunca debe llegar a producción.
         if self.ENV == "production" and self.MAIL_PROVIDER == "console":
             raise ValueError("MAIL_PROVIDER=console no está permitido con ENV=production")
+        # El adaptador falso de IA tampoco: en producción el plan debe venir de Gemini.
+        if self.ENV == "production" and self.AI_ENABLED:
+            if self.AI_PROVIDER == "fake":
+                raise ValueError("AI_PROVIDER=fake no está permitido con ENV=production y AI_ENABLED=true")
+            if not self.GEMINI_API_KEY:
+                raise ValueError("GEMINI_API_KEY es obligatoria con ENV=production y AI_ENABLED=true")
+        # Una generación viva nunca debe confundirse con una huérfana.
+        if self.PLAN_STALE_SECONDS <= self.AI_TOTAL_BUDGET_SECONDS:
+            raise ValueError("PLAN_STALE_SECONDS debe ser mayor que AI_TOTAL_BUDGET_SECONDS")
         return self
 
 

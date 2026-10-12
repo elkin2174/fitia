@@ -29,6 +29,20 @@ class ProfileService:
     async def has_profile(self, user_id: uuid.UUID) -> bool:
         return await self._repo.exists(user_id)
 
+    async def get_diagnostic(self, user_id: uuid.UUID) -> DiagnosticProfile | None:
+        """Las 6 respuestas del diagnóstico (días ordenados), o None si no hay perfil."""
+        profile = await self._repo.get(user_id)
+        if profile is None:
+            return None
+        return DiagnosticProfile(
+            goal=profile.goal,
+            term_weeks=profile.term_weeks,
+            fitness_level=profile.fitness_level,
+            session_minutes=profile.session_minutes,
+            training_days=await self._repo.get_training_days(user_id),
+            has_machine_access=profile.has_machine_access,
+        )
+
     async def create_from_diagnostic(self, user_id: uuid.UUID, answers: DiagnosticProfile) -> DiagnosticProfile:
         """Guarda perfil y días en UNA transacción. 409 si el usuario ya tiene perfil."""
         if await self._repo.exists(user_id):

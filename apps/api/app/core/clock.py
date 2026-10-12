@@ -26,6 +26,9 @@ class FrozenClock(Clock):
     def advance(self, delta: timedelta) -> None:
         self._now += delta
 
+    def set(self, moment: datetime) -> None:
+        self._now = moment.astimezone(BOGOTA_TZ)
+
 
 _system_clock = Clock()
 

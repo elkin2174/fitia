@@ -14,6 +14,17 @@ class ProfileRepository:
     async def exists(self, user_id: uuid.UUID) -> bool:
         return bool(await self._session.scalar(select(exists().where(Profile.user_id == user_id))))
 
+    async def get(self, user_id: uuid.UUID) -> Profile | None:
+        return await self._session.get(Profile, user_id)
+
+    async def get_training_days(self, user_id: uuid.UUID) -> list[int]:
+        result = await self._session.scalars(
+            select(ProfileTrainingDay.weekday)
+            .where(ProfileTrainingDay.user_id == user_id)
+            .order_by(ProfileTrainingDay.weekday)
+        )
+        return list(result.all())
+
     async def add_profile(self, profile: Profile) -> None:
         self._session.add(profile)
         await self._session.flush()

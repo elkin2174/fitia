@@ -20,3 +20,28 @@ def test_to_asyncpg_url_normaliza_urls_de_supabase() -> None:
     url = to_asyncpg_url("postgresql://u:p@db.supabase.co:5432/postgres?sslmode=require")
 
     assert url == "postgresql+asyncpg://u:p@db.supabase.co:5432/postgres?ssl=require"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"AI_PROVIDER": "fake", "GEMINI_API_KEY": "k"},
+        {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": ""},
+    ],
+)
+def test_produccion_con_ia_exige_gemini_y_clave(overrides: dict) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, ENV="production", MAIL_PROVIDER="http", AI_ENABLED=True, **overrides)
+
+
+def test_produccion_con_gemini_y_clave_arranca() -> None:
+    Settings(_env_file=None, ENV="production", MAIL_PROVIDER="http", AI_PROVIDER="gemini", GEMINI_API_KEY="k")
+
+
+def test_produccion_con_ia_deshabilitada_no_exige_clave() -> None:
+    Settings(_env_file=None, ENV="production", MAIL_PROVIDER="http", AI_ENABLED=False)
+
+
+def test_stale_debe_superar_el_presupuesto_de_la_ia() -> None:
+    with pytest.raises(ValidationError, match="PLAN_STALE_SECONDS"):
+        Settings(_env_file=None, PLAN_STALE_SECONDS=30, AI_TOTAL_BUDGET_SECONDS=40)

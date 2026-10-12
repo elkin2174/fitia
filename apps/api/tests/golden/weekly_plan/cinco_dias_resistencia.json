@@ -1,0 +1,6 @@
+{
+  "description": "Intermedio, resistencia, 45 min, sin máquinas, cinco días",
+  "input": {"goal": "endurance", "term_weeks": 8, "fitness_level": "intermediate", "session_minutes": 45,
+            "training_days": [1, 2, 3, 4, 5], "has_machine_access": false},
+  "expect": {"weekdays": [1, 2, 3, 4, 5], "max_minutes": 45, "machines": "none", "exercises_per_day": [3, 8]}
+}

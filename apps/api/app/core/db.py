@@ -59,3 +59,8 @@ async def get_session() -> AsyncIterator[AsyncSession]:
     """Una sesión por request; lo no confirmado se revierte al cerrar."""
     async with get_sessionmaker()() as session:
         yield session
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Fábrica de sesiones para trabajos fuera del request (p. ej. la generación del plan)."""
+    return get_sessionmaker()

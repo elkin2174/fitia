@@ -1,14 +1,19 @@
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ai.registry import get_prompt_registry
 from app.core.cache_control import NoStoreMiddleware
+from app.core.config import get_settings
 from app.core.csrf import require_csrf_header
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.modules.auth.router import router as auth_router
 from app.modules.onboarding.router import router as onboarding_router
+from app.modules.plan.router import router as plan_router
 
 configure_logging()
+# Falla al arrancar si el prompt activo no existe o está incompleto.
+get_prompt_registry().load("weekly_plan", get_settings().PROMPT_VERSION_WEEKLY_PLAN)
 
 app = FastAPI(
     title="FITIA API",
@@ -50,4 +55,5 @@ async def api_health():
 api_v1 = APIRouter(prefix="/api/v1", dependencies=[Depends(require_csrf_header)])
 api_v1.include_router(auth_router)
 api_v1.include_router(onboarding_router)
+api_v1.include_router(plan_router)
 app.include_router(api_v1)

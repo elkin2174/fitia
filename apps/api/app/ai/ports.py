@@ -1,20 +1,40 @@
+"""Puertos de IA por modalidad (ADR-07). Los casos de uso dependen de estos contratos, nunca de Gemini."""
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
-class TextGeneratorPort(ABC):
-    """Puerto para generador de texto (Gemini o FakeAdapter)."""
-    @abstractmethod
-    async def generate_text(self, prompt: str, context: Dict[str, Any]) -> str:
-        pass
 
-class AudioProcessorPort(ABC):
-    """Puerto para procesamiento de audio (extensión futura)."""
-    @abstractmethod
-    async def process_audio(self, audio_data: bytes) -> str:
-        pass
+@dataclass(frozen=True)
+class TextRequest:
+    system: str
+    prompt: str
+    input_data: Mapping[str, Any]  # solo las claves de la allowlist (PrivacyGuard)
+    response_schema: Mapping[str, Any] | None
+    temperature: float
+    max_output_tokens: int
+    timeout_seconds: float
+    model: str = ""
+    thinking_level: str | None = None
+    extra: Mapping[str, Any] = field(default_factory=dict)
 
-class VisionAnalyzerPort(ABC):
-    """Puerto para análisis de visión/postura (extensión futura)."""
+
+class TextGenerator(ABC):
+    """Genera texto (aquí, JSON estructurado). Lanza AIProviderError o AIInvalidOutput."""
+
+    model_name: str = "unknown"
+
     @abstractmethod
-    async def analyze_image(self, image_data: bytes) -> Dict[str, Any]:
-        pass
+    async def generate(self, request: TextRequest) -> str: ...
+
+
+class AudioProcessor(Protocol):
+    """Contrato para una extensión futura (sin implementación)."""
+
+    async def transcribe(self, audio: bytes, *, language: str) -> str: ...
+
+
+class VisionAnalyzer(Protocol):
+    """Contrato para una extensión futura (sin implementación)."""
+
+    async def analyze(self, image: bytes, *, task: str) -> Mapping[str, Any]: ...

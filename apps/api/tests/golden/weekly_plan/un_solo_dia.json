@@ -1,0 +1,6 @@
+{
+  "description": "Intermedio, pérdida de peso, 15 min, sin máquinas, un solo día",
+  "input": {"goal": "weight_loss", "term_weeks": 4, "fitness_level": "intermediate", "session_minutes": 15,
+            "training_days": [2], "has_machine_access": false},
+  "expect": {"weekdays": [2], "max_minutes": 15, "machines": "none", "exercises_per_day": [3, 8]}
+}

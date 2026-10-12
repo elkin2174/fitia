@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.clock import BOGOTA_TZ, FrozenClock, get_clock
 from app.core.config import Settings, get_settings
-from app.core.db import create_engine, get_session
+from app.core.db import create_engine, get_session, get_session_factory
 from app.core.mailer import get_mailer
 from app.core.rate_limit import RateLimiter, get_rate_limiter
 from app.core.security import hash_password
@@ -27,7 +27,12 @@ from app.modules.auth.models import User
 from app.modules.onboarding.status import get_onboarding_status
 from app.main import app
 from seeds.load_academic_programs import load_programs, read_programs
-from tests.fakes import FakeMailer, FakeOnboardingStatus
+from app.ai.adapters.fake_text import FakeTextAdapter
+from app.ai.call_log import DbCallRecorder
+from app.ai.gateway import AIGateway, get_ai_gateway
+from app.ai.resilience import CircuitBreaker
+from app.modules.plan.runner import get_plan_scheduler
+from tests.fakes import FakeMailer, FakeMonotonic, FakeOnboardingStatus, ManualScheduler
 
 API_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get(
@@ -69,7 +74,7 @@ async def engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
     engine = create_engine(migrated_database, poolclass=NullPool)
     yield engine
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users CASCADE"))
+        await conn.execute(text("TRUNCATE users, ai_call_logs CASCADE"))
     await engine.dispose()
 
 
@@ -110,11 +115,44 @@ def settings() -> Settings:
 
 
 @pytest.fixture
+def fake_ai() -> FakeTextAdapter:
+    """Adaptador falso de IA (con cola de comportamientos). `fake_ai.requests` es el espía del puerto."""
+    return FakeTextAdapter()
+
+
+@pytest.fixture
+def ai_time() -> FakeMonotonic:
+    return FakeMonotonic()
+
+
+@pytest.fixture
+def ai_gateway(
+    settings: Settings,
+    fake_ai: FakeTextAdapter,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    clock: FrozenClock,
+    ai_time: FakeMonotonic,
+) -> AIGateway:
+    return AIGateway(
+        settings=settings,
+        generator=fake_ai,
+        breaker=CircuitBreaker(
+            settings.AI_BREAKER_FAILURES, settings.AI_BREAKER_WINDOW_SECONDS, settings.AI_BREAKER_OPEN_SECONDS, ai_time
+        ),
+        recorder=DbCallRecorder(sessionmaker),
+        clock=clock,
+        time_fn=ai_time,
+        sleep=ai_time.sleep,
+    )
+
+
+@pytest.fixture
 async def client(
     sessionmaker: async_sessionmaker[AsyncSession],
     clock: FrozenClock,
     mailer: FakeMailer,
     settings: Settings,
+    ai_gateway: AIGateway,
 ) -> AsyncIterator[httpx.AsyncClient]:
     async def _session() -> AsyncIterator[AsyncSession]:
         async with sessionmaker() as session:
@@ -128,6 +166,8 @@ async def client(
             get_mailer: lambda: mailer,
             get_settings: lambda: settings,
             get_rate_limiter: lambda: limiter,
+            get_session_factory: lambda: sessionmaker,
+            get_ai_gateway: lambda: ai_gateway,
         }
     )
     transport = httpx.ASGITransport(app=app)
@@ -335,3 +375,56 @@ def complete_diagnostic(client: httpx.AsyncClient) -> Callable[..., Any]:
         return await client.post(COMPLETE_URL, json=body, headers=headers)
 
     return _complete
+
+
+
+# --- HU 5: plan semanal ------------------------------------------------------------
+
+GENERATE_URL = "/api/v1/plan/generate"
+CURRENT_URL = "/api/v1/plan/current"
+
+
+@pytest.fixture
+def manual_scheduler(client: httpx.AsyncClient) -> ManualScheduler:
+    """La tarea de generación no corre hasta que el test llama a run_next()/run_all()."""
+    scheduler = ManualScheduler()
+    app.dependency_overrides[get_plan_scheduler] = lambda: scheduler
+    return scheduler
+
+
+@pytest.fixture
+async def student_with_profile(student: Student, complete_diagnostic: Callable[..., Any]) -> Student:
+    assert (await complete_diagnostic(student.token)).status_code == 201
+    return student
+
+
+@pytest.fixture
+def plan_api(client: httpx.AsyncClient) -> Callable[..., Any]:
+    """plan_api.generate(token) / plan_api.current(token)."""
+
+    class _PlanApi:
+        async def generate(self, token: str, **kwargs: Any) -> httpx.Response:
+            return await client.post(GENERATE_URL, headers=with_session(token), **kwargs)
+
+        async def current(self, token: str) -> httpx.Response:
+            return await client.get(CURRENT_URL, headers=with_session(token))
+
+    return _PlanApi()
+
+
+@pytest.fixture
+def plan_footprint(db: AsyncSession) -> Callable[..., Any]:
+    """Filas del usuario en weekly_plans y, a partir de sus plan_id, en plan_days y plan_exercises."""
+
+    async def _footprint(user_id: uuid.UUID) -> dict[str, int]:
+        params = {"id": user_id}
+        plans = "SELECT id FROM weekly_plans WHERE user_id = :id"
+        return {
+            "weekly_plans": await db.scalar(text(f"SELECT count(*) FROM ({plans}) p"), params) or 0,
+            "plan_days": await db.scalar(text(f"SELECT count(*) FROM plan_days WHERE plan_id IN ({plans})"), params) or 0,
+            "plan_exercises": await db.scalar(
+                text(f"SELECT count(*) FROM plan_exercises WHERE plan_id IN ({plans})"), params
+            ) or 0,
+        }
+
+    return _footprint
