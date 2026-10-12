@@ -1,6 +1,8 @@
+import uuid
 from urllib.parse import parse_qs, urlparse
 
 from app.core.mailer import EmailMessage, Mailer
+from app.modules.onboarding.status import OnboardingStatus
 
 
 class FakeMailer(Mailer):
@@ -19,3 +21,11 @@ class FakeMailer(Mailer):
 
     def last_token(self) -> str:
         return parse_qs(urlparse(self.last_link()).query)["token"][0]
+
+
+class FakeOnboardingStatus(OnboardingStatus):
+    def __init__(self, completed: bool) -> None:
+        self.completed = completed
+
+    async def is_completed(self, user_id: uuid.UUID) -> bool:
+        return self.completed

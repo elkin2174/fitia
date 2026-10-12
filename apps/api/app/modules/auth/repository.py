@@ -40,6 +40,36 @@ class AuthRepository:
         ).first()
         return (row[0], row[1]) if row else None
 
+    async def get_user_with_program_by_email(self, email: str) -> tuple[User, AcademicProgram] | None:
+        row = (
+            await self._session.execute(
+                select(User, AcademicProgram)
+                .join(AcademicProgram, AcademicProgram.code == User.program_code)
+                .where(User.email == email)
+            )
+        ).first()
+        return (row[0], row[1]) if row else None
+
+    async def update_password_hash(self, user_id: uuid.UUID, password_hash: str) -> None:
+        await self._session.execute(update(User).where(User.id == user_id).values(password_hash=password_hash))
+
+    async def get_active_session(self, token_hash: str, now: datetime) -> tuple[UserSession, User] | None:
+        row = (
+            await self._session.execute(
+                select(UserSession, User)
+                .join(User, User.id == UserSession.user_id)
+                .where(UserSession.token_hash == token_hash, UserSession.expires_at > now)
+            )
+        ).first()
+        return (row[0], row[1]) if row else None
+
+    async def touch_session(self, session_id: uuid.UUID, now: datetime, expires_at: datetime) -> None:
+        await self._session.execute(
+            update(UserSession)
+            .where(UserSession.id == session_id)
+            .values(last_seen_at=now, expires_at=expires_at)
+        )
+
     async def add_user(self, user: User) -> None:
         self._session.add(user)
         await self._session.flush()

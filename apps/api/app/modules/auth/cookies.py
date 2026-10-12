@@ -18,3 +18,16 @@ def set_session_cookie(response: Response, token: str, expires_at: datetime, set
         httponly=True,
         samesite="lax",
     )
+
+
+def delete_session_cookie(response: Response, settings: Settings) -> None:
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME, path="/", secure=settings.COOKIE_SECURE, httponly=True, samesite="lax"
+    )
+
+
+def session_cookie_deletion_header(settings: Settings) -> str:
+    """Valor de Set-Cookie que borra la sesión, para respuestas de error que no pasan por `Response`."""
+    response = Response()
+    delete_session_cookie(response, settings)
+    return response.headers["set-cookie"]

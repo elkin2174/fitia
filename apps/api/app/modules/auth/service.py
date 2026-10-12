@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Literal
 
 from fastapi import BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
@@ -15,12 +16,13 @@ from app.core.config import Settings
 from app.core.errors import AppError, FieldError
 from app.core.mailer import Mailer, send_safely
 from app.core.rate_limit import RateLimiter, enforce_ip_and_email_limits
-from app.core.security import generate_token, hash_password, hash_token
+from app.core.security import generate_token, hash_password, hash_token, password_needs_rehash, verify_password
 from app.modules.auth import validators as v
 from app.modules.auth.emails import build_verification_email, verification_link
 from app.modules.auth.models import AcademicProgram, Consent, EmailVerificationToken, User, UserSession
 from app.modules.auth.repository import AuthRepository
-from app.modules.auth.schemas import RegisterRequest
+from app.modules.auth.schemas import LoginRequest, RegisterRequest
+from app.modules.onboarding.status import OnboardingStatus
 
 logger = logging.getLogger("fitia.auth")
 
@@ -38,6 +40,21 @@ class VerificationResult:
     user: User
     program: AcademicProgram
     session: IssuedSession
+
+
+@dataclass(frozen=True)
+class LoginResult:
+    user: User
+    program: AcademicProgram
+    session: IssuedSession
+    next: Literal["onboarding", "home"]
+
+
+@dataclass(frozen=True)
+class MeResult:
+    user: User
+    program: AcademicProgram
+    onboarding_completed: bool
 
 
 async def issue_session(repository: AuthRepository, user_id: uuid.UUID, now: datetime, ttl_days: int) -> IssuedSession:
@@ -69,6 +86,7 @@ class AuthService:
         mailer: Mailer,
         limiter: RateLimiter,
         background: BackgroundTasks,
+        onboarding: OnboardingStatus,
     ) -> None:
         self._session = session
         self._repo = AuthRepository(session)
@@ -77,6 +95,7 @@ class AuthService:
         self._mailer = mailer
         self._limiter = limiter
         self._background = background
+        self._onboarding = onboarding
 
     async def list_programs(self) -> Sequence[AcademicProgram]:
         return await self._repo.list_programs()
@@ -167,6 +186,73 @@ class AuthService:
         logger.info("verification_resent", extra={"user_id": str(user.id)})
         self._schedule_verification_email(email, user.nickname, token)
 
+    async def login(self, data: LoginRequest, client_ip: str) -> LoginResult:
+        email = v.normalize_email(data.email)
+        failures_key = f"login:fail:{_email_rate_key(email)}"
+        window = self._settings.RATE_LIMIT_LOGIN_WINDOW_MINUTES * 60
+        # El límite va antes de cualquier consulta o Argon2 para que el login no sea un vector de DoS.
+        self._limiter.hit(f"login:ip:{client_ip}", self._settings.RATE_LIMIT_LOGIN_PER_IP, window)
+        self._limiter.check(failures_key, self._settings.RATE_LIMIT_LOGIN_PER_EMAIL, window)
+
+        self._validate_login(data, email)
+        assert data.password is not None  # garantizado por la validación
+
+        found = await self._repo.get_user_with_program_by_email(email) if v.has_allowed_domain(email) else None
+        if found is None:
+            self._limiter.record(failures_key, window)
+            logger.info("login_failed", extra={"reason": "account_not_found"})
+            raise AppError(
+                404,
+                "ACCOUNT_NOT_FOUND",
+                "Este correo no está registrado en FITIA. Crea una cuenta para empezar.",
+                [FieldError("email", "ACCOUNT_NOT_FOUND")],
+            )
+        user, program = found
+
+        if not await run_in_threadpool(verify_password, user.password_hash, data.password):
+            self._limiter.record(failures_key, window)
+            logger.info("login_failed", extra={"reason": "invalid_credentials", "user_id": str(user.id)})
+            raise AppError(401, "INVALID_CREDENTIALS", "El correo o la contraseña no son correctos.")
+
+        # Solo quien conoce la contraseña llega aquí: el estado de verificación no se puede sondear.
+        if user.email_verified_at is None:
+            logger.info("login_failed", extra={"reason": "email_not_verified", "user_id": str(user.id)})
+            raise AppError(
+                403,
+                "EMAIL_NOT_VERIFIED",
+                "Debes verificar tu correo antes de iniciar sesión. Revisa tu bandeja o solicita un nuevo enlace.",
+            )
+
+        if password_needs_rehash(user.password_hash):
+            new_hash = await run_in_threadpool(hash_password, data.password)
+            await self._repo.update_password_hash(user.id, new_hash)
+
+        # Siempre una sesión nueva (evita fijación de sesión); se admiten varias por usuario.
+        session = await issue_session(self._repo, user.id, self._clock.now(), self._settings.SESSION_TTL_DAYS)
+        await self._session.commit()
+        self._limiter.clear(failures_key)
+
+        completed = await self._onboarding.is_completed(user.id)
+        logger.info("login_succeeded", extra={"user_id": str(user.id)})
+        return LoginResult(user=user, program=program, session=session, next="home" if completed else "onboarding")
+
+    async def get_me(self, user_id: uuid.UUID) -> MeResult:
+        found = await self._repo.get_user_with_program(user_id)
+        assert found is not None  # el guard de sesión ya comprobó que el usuario existe
+        user, program = found
+        return MeResult(user=user, program=program, onboarding_completed=await self._onboarding.is_completed(user_id))
+
+    def _validate_login(self, data: LoginRequest, email: str) -> None:
+        errors: list[FieldError] = []
+        if not v.is_valid_email_format(email):
+            errors.append(FieldError("email", "INVALID_EMAIL"))
+        if not data.password:
+            errors.append(FieldError("password", "REQUIRED"))
+        elif len(data.password) > v.PASSWORD_MAX:
+            errors.append(FieldError("password", "PASSWORD_TOO_LONG"))
+        if errors:
+            raise AppError(422, "VALIDATION_ERROR", self._validation_message(errors), errors)
+
     async def _validate_registration(self, data: RegisterRequest, email: str, nickname: str) -> None:
         errors: list[FieldError] = []
         if not v.is_valid_nickname(nickname):
@@ -193,6 +279,7 @@ class AuthService:
             "WEAK_PASSWORD": f"La contraseña debe tener al menos {v.PASSWORD_MIN} caracteres.",
             "PASSWORD_TOO_LONG": f"La contraseña no puede superar {v.PASSWORD_MAX} caracteres.",
             "INVALID_EMAIL": "El correo no tiene un formato válido.",
+            "REQUIRED": "Escribe tu contraseña.",
         }
         return " ".join(messages[e.code] for e in errors)
 

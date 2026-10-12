@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     VERIFICATION_TOKEN_TTL_HOURS: int = 24
     SESSION_TTL_DAYS: int = 30
+    # Expiración deslizante: last_seen_at/expires_at se actualizan como máximo una vez por intervalo.
+    SESSION_TOUCH_INTERVAL_MINUTES: int = 10
     COOKIE_SECURE: bool = True
 
     MAIL_PROVIDER: Literal["console", "http"] = "console"
@@ -31,6 +33,10 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = 900
     RATE_LIMIT_PER_IP: int = 30
     RATE_LIMIT_PER_EMAIL: int = 5
+    # Login: por IP cuenta todos los intentos (alto: el campus comparte IP); por correo solo los fallidos.
+    RATE_LIMIT_LOGIN_WINDOW_MINUTES: int = 15
+    RATE_LIMIT_LOGIN_PER_IP: int = 100
+    RATE_LIMIT_LOGIN_PER_EMAIL: int = 5
 
     GEMINI_API_KEY: str = ""
     AI_PROVIDER: str = "fake"

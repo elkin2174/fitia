@@ -21,3 +21,13 @@ def test_generate_token_es_aleatorio_y_largo() -> None:
 
 def test_hash_token_es_sha256_hex() -> None:
     assert hash_token("abc") == hashlib.sha256(b"abc").hexdigest()
+
+
+def test_password_needs_rehash_detecta_parametros_antiguos() -> None:
+    from argon2 import PasswordHasher, Type
+
+    from app.core.security import password_needs_rehash
+
+    legacy = PasswordHasher(time_cost=1, memory_cost=8192, parallelism=1, type=Type.ID).hash("x")
+    assert password_needs_rehash(legacy)
+    assert not password_needs_rehash(hash_password("x"))

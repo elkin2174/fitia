@@ -14,11 +14,10 @@ class RateLimiter:
         self._time = time_fn
         self._hits: dict[str, deque[float]] = {}
 
-    def hit(self, key: str, limit: int, window_seconds: int) -> None:
+    def check(self, key: str, limit: int, window_seconds: int) -> None:
+        """Lanza 429 si la clave ya alcanzó el límite, sin registrar un intento nuevo."""
         now = self._time()
-        hits = self._hits.setdefault(key, deque())
-        while hits and hits[0] <= now - window_seconds:
-            hits.popleft()
+        hits = self._current(key, now, window_seconds)
         if len(hits) >= limit:
             retry_after = max(1, math.ceil(hits[0] + window_seconds - now))
             raise AppError(
@@ -27,9 +26,25 @@ class RateLimiter:
                 "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
                 headers={"Retry-After": str(retry_after)},
             )
-        hits.append(now)
+
+    def record(self, key: str, window_seconds: int) -> None:
+        now = self._time()
+        self._current(key, now, window_seconds).append(now)
         if len(self._hits) > 10_000:
             self._prune(now, window_seconds)
+
+    def hit(self, key: str, limit: int, window_seconds: int) -> None:
+        self.check(key, limit, window_seconds)
+        self.record(key, window_seconds)
+
+    def clear(self, key: str) -> None:
+        self._hits.pop(key, None)
+
+    def _current(self, key: str, now: float, window_seconds: int) -> deque[float]:
+        hits = self._hits.setdefault(key, deque())
+        while hits and hits[0] <= now - window_seconds:
+            hits.popleft()
+        return hits
 
     def _prune(self, now: float, window_seconds: int) -> None:
         for key in [k for k, v in self._hits.items() if not v or v[-1] <= now - window_seconds]:

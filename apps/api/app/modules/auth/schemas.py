@@ -47,3 +47,20 @@ class ResendVerificationRequest(BaseModel):
 class ResendVerificationResponse(BaseModel):
     status: Literal["accepted"] = "accepted"
     message: str = "Si hay una cuenta pendiente de verificación con ese correo, te enviamos un nuevo enlace."
+
+
+class LoginRequest(BaseModel):
+    email: str | None = Field(default=None, max_length=320)
+    password: str | None = Field(default=None, max_length=1024)
+
+
+class LoginResponse(BaseModel):
+    user: VerifiedUserOut
+    next: Literal["onboarding", "home"]
+
+
+class MeResponse(BaseModel):
+    id: uuid.UUID
+    nickname: str
+    program: ProgramOut
+    onboarding_completed: bool

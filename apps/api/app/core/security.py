@@ -19,6 +19,11 @@ def verify_password(password_hash: str, password: str) -> bool:
         return False
 
 
+def password_needs_rehash(password_hash: str) -> bool:
+    """True si el hash se generó con parámetros distintos a los actuales."""
+    return _password_hasher.check_needs_rehash(password_hash)
+
+
 def generate_token() -> str:
     """Token opaco de 256 bits, apto para URL."""
     return secrets.token_urlsafe(32)
