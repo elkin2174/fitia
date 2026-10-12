@@ -24,3 +24,12 @@ class DiagnosticProfile(BaseModel):
     session_minutes: SessionMinutes
     training_days: list[Weekday]
     has_machine_access: bool
+
+
+class ProfileResponse(BaseModel):
+    profile: DiagnosticProfile
+
+
+class UpdateProfileResponse(BaseModel):
+    profile: DiagnosticProfile
+    message: str

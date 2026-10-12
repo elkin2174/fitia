@@ -31,6 +31,7 @@ _MESSAGES = {
     "MACHINE_ACCESS_REQUIRED": "Indica si tienes acceso a máquinas.",
     "DAYS_REQUIRED": "Elige al menos un día para entrenar, de lunes a viernes.",
     "INVALID_OPTION": "Hay respuestas que no corresponden a las opciones disponibles.",
+    "EMPTY_UPDATE": "Debes incluir al menos un campo del diagnóstico para actualizar.",
 }
 
 
@@ -83,4 +84,4 @@ def validate_diagnostic(raw: Any, *, partial: bool = False) -> tuple[dict[str, A
 def validation_message(errors: list[FieldError]) -> str:
     """Mensaje principal: un texto por cada tipo de error, sin repetir (mismo patrón que el registro)."""
     codes = dict.fromkeys(e.code for e in errors)
-    return " ".join(_MESSAGES[code] for code in codes)
+    return " ".join(_MESSAGES.get(code, "Hay respuestas que no corresponden a las opciones disponibles.") for code in codes)

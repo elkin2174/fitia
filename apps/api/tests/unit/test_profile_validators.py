@@ -103,3 +103,9 @@ def test_mensaje_no_repite_textos() -> None:
     errors = [FieldError("goal", "REQUIRED"), FieldError("term_weeks", "REQUIRED")]
 
     assert validation_message(errors) == "Responde todas las preguntas del diagnóstico."
+
+
+def test_mensaje_de_actualizacion_vacia() -> None:
+    message = validation_message([FieldError("body", "EMPTY_UPDATE")])
+
+    assert "al menos un campo" in message

@@ -10,6 +10,7 @@ from app.core.logging import configure_logging
 from app.modules.auth.router import router as auth_router
 from app.modules.onboarding.router import router as onboarding_router
 from app.modules.plan.router import router as plan_router
+from app.modules.profile.router import router as profile_router
 
 configure_logging()
 # Falla al arrancar si el prompt activo no existe o está incompleto.
@@ -56,4 +57,5 @@ api_v1 = APIRouter(prefix="/api/v1", dependencies=[Depends(require_csrf_header)]
 api_v1.include_router(auth_router)
 api_v1.include_router(onboarding_router)
 api_v1.include_router(plan_router)
+api_v1.include_router(profile_router)
 app.include_router(api_v1)

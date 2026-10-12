@@ -1,13 +1,18 @@
+import logging
 import uuid
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import Clock
-from app.core.errors import AppError
+from app.core.errors import AppError, FieldError
 from app.modules.profile.models import Profile
 from app.modules.profile.repository import ProfileRepository
 from app.modules.profile.schemas import DiagnosticProfile
+from app.modules.profile.validators import validate_diagnostic, validation_message
+
+logger = logging.getLogger("fitia.profile")
 
 _PROFILE_PK_CONSTRAINT = "profiles_pkey"
 
@@ -73,6 +78,49 @@ class ProfileService:
             await self._session.rollback()  # nunca queda un perfil sin días
             raise
         return answers
+
+    async def update_diagnostic(self, user_id: uuid.UUID, raw_answers: Any) -> DiagnosticProfile:
+        """Actualiza las respuestas del diagnóstico en UNA transacción (HU 6).
+        Valida que el perfil exista (404 si no) y que los datos sean válidos (422 si no).
+        Si no hay cambios frente al perfil actual, evita escrituras innecesarias.
+        """
+        current = await self.get_diagnostic(user_id)
+        if current is None:
+            raise AppError(404, "PROFILE_NOT_FOUND", "No se encontró el perfil del estudiante.")
+
+        values, errors = validate_diagnostic(raw_answers, partial=True)
+        if errors:
+            raise AppError(422, "VALIDATION_ERROR", validation_message(errors), errors)
+        if not values:
+            raise AppError(
+                422,
+                "VALIDATION_ERROR",
+                "Debes incluir al menos un campo del diagnóstico para actualizar.",
+                [FieldError("body", "EMPTY_UPDATE")],
+            )
+
+        # Evitar escrituras innecesarias si los valores son idénticos a los actuales
+        changed = any(getattr(current, k) != v for k, v in values.items())
+        if not changed:
+            return current
+
+        now = self._clock.now()
+        try:
+            await self._repo.update_profile(user_id, values, now)
+            if "training_days" in values:
+                await self._repo.replace_training_days(user_id, values["training_days"])
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+        logger.info(
+            "profile_updated",
+            extra={"user_id": str(user_id), "fields": sorted(list(values.keys()))},
+        )
+        updated = await self.get_diagnostic(user_id)
+        assert updated is not None
+        return updated
 
     @staticmethod
     def _profile_exists_error() -> AppError:
