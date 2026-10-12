@@ -2,7 +2,7 @@
 
 Documentación técnica de la implementación de la HU 6 (US6) del MVP FITIA: qué se construyó, cómo funciona, cómo se probó y cómo probarlo a mano. Se apoya en las historias previas [H1.md](H1.md), [HU2.md](HU2.md), [HU3.md](HU3.md), [HU4.md](HU4.md) y [HU5.md](HU5.md).
 
-> Estado: implementado y verificado (pruebas unitarias y de integración para AC-6-1 a AC-6-5). Sin cambios de esquema de base de datos (reutiliza el esquema establecido en la migración `0002_hu4_profile_schema`).
+> Estado: implementado y verificado (536 pruebas pasando en Docker, 32 nuevas de HU 6: 25 de integración, 6 unitarias de service, 1 de validador). Sin cambios de esquema de base de datos (reutiliza el esquema establecido en la migración `0002_hu4_profile_schema`).
 
 ---
 

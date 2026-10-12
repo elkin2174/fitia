@@ -58,14 +58,14 @@ async def test_ac_6_1_estudiante_sin_diagnostico_recibe_403(client: httpx.AsyncC
     response = await _get_profile(client, student.token)
 
     assert response.status_code == 403
-    assert response.json()["code"] == "ONBOARDING_REQUIRED"
+    assert response.json()["error"]["code"] == "ONBOARDING_REQUIRED"
 
 
 async def test_ac_6_1_sin_sesion_recibe_401(client: httpx.AsyncClient) -> None:
     response = await client.get(PROFILE_URL)
 
     assert response.status_code == 401
-    assert response.json()["code"] == "UNAUTHENTICATED"
+    assert response.json()["error"]["code"] == "UNAUTHENTICATED"
 
 
 async def test_ac_6_1_no_expone_datos_de_otro_estudiante(
@@ -259,8 +259,8 @@ async def test_ac_6_3_datos_invalidos_rechazan_operacion_y_preservan_estado_ante
 
     assert response.status_code == 422
     data = response.json()
-    assert data["code"] == "VALIDATION_ERROR"
-    assert any(e["field"] == "goal" and e["code"] == "INVALID_OPTION" for e in data["errors"])
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert any(e["field"] == "goal" and e["code"] == "INVALID_OPTION" for e in data["error"]["fields"])
 
     # El perfil anterior permanece intacto
     profile_db = await db.get(Profile, student_with_profile.user.id)
@@ -275,7 +275,7 @@ async def test_ac_6_3_training_days_vacio_falla_con_days_required(
 
     assert response.status_code == 422
     data = response.json()
-    assert any(e["field"] == "training_days" and e["code"] == "DAYS_REQUIRED" for e in data["errors"])
+    assert any(e["field"] == "training_days" and e["code"] == "DAYS_REQUIRED" for e in data["error"]["fields"])
 
     days_db = (
         await db.scalars(
@@ -291,7 +291,7 @@ async def test_ac_6_3_training_days_fuera_de_rango_falla(
     response = await _patch_profile(client, student_with_profile.token, {"training_days": [0, 6]})
 
     assert response.status_code == 422
-    assert any(e["field"] == "training_days" and e["code"] == "INVALID_OPTION" for e in response.json()["errors"])
+    assert any(e["field"] == "training_days" and e["code"] == "INVALID_OPTION" for e in response.json()["error"]["fields"])
 
 
 @pytest.mark.parametrize(
@@ -311,7 +311,7 @@ async def test_ac_6_3_tipado_incorrecto_falla(
     response = await _patch_profile(client, student_with_profile.token, {field: bad_value})
 
     assert response.status_code == 422
-    assert any(e["field"] == field and e["code"] == "INVALID_OPTION" for e in response.json()["errors"])
+    assert any(e["field"] == field and e["code"] == "INVALID_OPTION" for e in response.json()["error"]["fields"])
 
 
 async def test_ac_6_3_cuerpo_vacio_falla_con_empty_update(
@@ -321,8 +321,8 @@ async def test_ac_6_3_cuerpo_vacio_falla_con_empty_update(
 
     assert response.status_code == 422
     data = response.json()
-    assert data["code"] == "VALIDATION_ERROR"
-    assert any(e["code"] == "EMPTY_UPDATE" for e in data["errors"])
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert any(e["code"] == "EMPTY_UPDATE" for e in data["error"]["fields"])
 
 
 async def test_ac_6_3_cuerpo_solo_con_campos_desconocidos_falla(
@@ -331,11 +331,12 @@ async def test_ac_6_3_cuerpo_solo_con_campos_desconocidos_falla(
     response = await _patch_profile(client, student_with_profile.token, {"campo_inventado": 123})
 
     assert response.status_code == 422
-    assert any(e["code"] == "EMPTY_UPDATE" for e in response.json()["errors"])
+    assert any(e["code"] == "EMPTY_UPDATE" for e in response.json()["error"]["fields"])
 
     profile_db = await db.get(Profile, student_with_profile.user.id)
     assert profile_db is not None
     assert profile_db.goal == "strength"
+
 
 
 # --- AC-6-4: El plan vigente no cambia ----------------------------------------
@@ -452,10 +453,10 @@ async def test_ac_6_5_proximo_plan_utiliza_respuestas_actualizadas(
     # 4. Verificar que la IA recibió las respuestas actualizadas
     assert fake_ai.calls == 2
     last_ai_request = fake_ai.requests[-1]
-    assert last_ai_request.params["goal"] == "endurance"
-    assert last_ai_request.params["session_minutes"] == 15
-    assert last_ai_request.params["training_days"] == [2, 4]
-    assert last_ai_request.params["has_machine_access"] is False
+    assert last_ai_request.input_data["goal"] == "endurance"
+    assert last_ai_request.input_data["session_minutes"] == 15
+    assert last_ai_request.input_data["training_days"] == [2, 4]
+    assert last_ai_request.input_data["has_machine_access"] is False
 
     # 5. Verificar que el nuevo plan vigente en la API refleja el nuevo snapshot
     current = await plan_api.current(token)
@@ -478,17 +479,23 @@ async def test_ac_6_5_limite_semanal_de_regeneracion_se_respeta_estrictamente(
     await plan_api.generate(token)
     await manual_scheduler.run_all()
 
-    # Generación 2 (alcanza el límite de PLAN_MAX_GENERATIONS_PER_WEEK=2)
+    # Generación 2
     await _patch_profile(client, token, {"goal": "endurance"})
     await plan_api.generate(token)
     await manual_scheduler.run_all()
 
-    # Actualizar perfil por tercera vez: la actualización de perfil sí es exitosa
-    patch_res = await _patch_profile(client, token, {"goal": "weight_loss"})
+    # Generación 3 (alcanza el límite de PLAN_MAX_GENERATIONS_PER_WEEK=3)
+    await _patch_profile(client, token, {"goal": "weight_loss"})
+    await plan_api.generate(token)
+    await manual_scheduler.run_all()
+
+    # Actualizar perfil por cuarta vez: la actualización de perfil sí es exitosa
+    patch_res = await _patch_profile(client, token, {"goal": "general_health"})
     assert patch_res.status_code == 200
 
-    # Pero generar un tercer plan dentro de la misma semana está prohibido
-    third_gen = await plan_api.generate(token)
-    assert third_gen.status_code == 429
-    assert third_gen.json()["code"] == "REGENERATION_LIMIT"
-    assert "Retry-After" in third_gen.headers
+    # Pero generar una cuarta rutina dentro de la misma semana está prohibido (429)
+    fourth_gen = await plan_api.generate(token)
+    assert fourth_gen.status_code == 429
+    assert fourth_gen.json()["error"]["code"] == "REGENERATION_LIMIT"
+    assert "Retry-After" in fourth_gen.headers
+

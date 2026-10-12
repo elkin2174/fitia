@@ -69,7 +69,7 @@ async def test_update_diagnostic_falla_si_cuerpo_esta_vacio(service: ProfileServ
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.code == "VALIDATION_ERROR"
-    assert any(e.code == "EMPTY_UPDATE" for e in exc_info.value.errors)
+    assert any(e.code == "EMPTY_UPDATE" for e in exc_info.value.fields)
 
 
 async def test_update_diagnostic_falla_con_errores_de_validacion(service: ProfileService) -> None:
@@ -92,7 +92,7 @@ async def test_update_diagnostic_falla_con_errores_de_validacion(service: Profil
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.code == "VALIDATION_ERROR"
-    field_codes = {e.field: e.code for e in exc_info.value.errors}
+    field_codes = {e.field: e.code for e in exc_info.value.fields}
     assert field_codes.get("goal") == "INVALID_OPTION"
     assert field_codes.get("training_days") == "DAYS_REQUIRED"
 
