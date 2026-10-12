@@ -31,7 +31,7 @@ class CurrentSession:
     user: CurrentUser
 
 
-def _unauthenticated(settings: Settings) -> AppError:
+def unauthenticated_error(settings: Settings) -> AppError:
     return AppError(
         401,
         "UNAUTHENTICATED",
@@ -50,16 +50,16 @@ async def get_current_session(
     """Resuelve la sesión desde la cookie. Sin sesión válida → 401 y la cookie se borra."""
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
-        raise _unauthenticated(settings)
+        raise unauthenticated_error(settings)
 
     now = clock.now()
     repo = AuthRepository(db)
     found = await repo.get_active_session(hash_token(token), now)
     if found is None:
-        raise _unauthenticated(settings)
+        raise unauthenticated_error(settings)
     user_session, user = found
     if user.email_verified_at is None:
-        raise _unauthenticated(settings)
+        raise unauthenticated_error(settings)
 
     expires_at = user_session.expires_at
     if now - user_session.last_seen_at >= timedelta(minutes=settings.SESSION_TOUCH_INTERVAL_MINUTES):

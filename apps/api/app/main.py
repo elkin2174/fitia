@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.cache_control import NoStoreMiddleware
 from app.core.csrf import require_csrf_header
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
@@ -24,6 +25,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# NFR-11: nada bajo /api/v1 se guarda en caché (incluidas las respuestas de error),
+# salvo los GET públicos que sí pueden cachearse.
+app.add_middleware(
+    NoStoreMiddleware,
+    prefix="/api/v1",
+    cacheable_get_paths=frozenset({"/api/v1/programs", "/api/v1/health"}),
 )
 
 register_error_handlers(app)

@@ -237,3 +237,28 @@ def login(client: httpx.AsyncClient) -> Callable[..., Any]:
         return await client.post("/api/v1/auth/login", json={"email": email, "password": password})
 
     return _login
+
+
+# --- HU 3: huella de un usuario en la BD ----------------------------------------
+
+
+@pytest.fixture
+def user_footprint(db: AsyncSession) -> Callable[..., Any]:
+    """Cuenta las filas de un usuario en `users` y en TODAS las tablas con `user_id` (catálogo real)."""
+
+    async def _footprint(user_id: uuid.UUID) -> dict[str, int]:
+        tables = (
+            await db.scalars(
+                text(
+                    "SELECT table_name FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND column_name = 'user_id' ORDER BY 1"
+                )
+            )
+        ).all()
+        counts = {"users": await db.scalar(text("SELECT count(*) FROM users WHERE id = :id"), {"id": user_id}) or 0}
+        for table in tables:  # nombres tomados del catálogo, no de entrada externa
+            query = text(f'SELECT count(*) FROM "{table}" WHERE user_id = :id')
+            counts[table] = await db.scalar(query, {"id": user_id}) or 0
+        return counts
+
+    return _footprint

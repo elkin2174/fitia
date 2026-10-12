@@ -64,3 +64,8 @@ class MeResponse(BaseModel):
     nickname: str
     program: ProgramOut
     onboarding_completed: bool
+
+
+class DeleteAccountRequest(BaseModel):
+    # Opcional a propósito: la falta de confirmación se responde con 400 CONFIRMATION_REQUIRED.
+    confirm: StrictBool | None = None

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import Clock, get_clock
@@ -6,9 +6,10 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.mailer import Mailer, get_mailer
 from app.core.rate_limit import RateLimiter, get_rate_limiter
-from app.modules.auth.cookies import set_session_cookie
-from app.modules.auth.dependencies import CurrentUser, get_current_user
+from app.modules.auth.cookies import delete_session_cookie, set_session_cookie
+from app.modules.auth.dependencies import CurrentSession, CurrentUser, get_current_session, get_current_user
 from app.modules.auth.schemas import (
+    DeleteAccountRequest,
     LoginRequest,
     LoginResponse,
     MeResponse,
@@ -119,3 +120,35 @@ async def me(
         program=ProgramOut.model_validate(result.program),
         onboarding_completed=result.onboarding_completed,
     )
+
+
+def _session_ended_response(settings: Settings) -> Response:
+    # Respuesta nueva a propósito: así se descarta la cookie que el guard pudo reemitir por la
+    # expiración deslizante, y el único Set-Cookie es el de borrado (mismos atributos que al fijarla).
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    delete_session_cookie(response, settings)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def logout(
+    current: CurrentSession = Depends(get_current_session),
+    service: AuthService = Depends(get_auth_service),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    # Solo sesión (no exige diagnóstico completo): cualquiera puede salir.
+    await service.logout(current.id)
+    return _session_ended_response(settings)
+
+
+@router.post("/me/delete-account", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def delete_account(
+    payload: DeleteAccountRequest | None = Body(default=None),
+    current: CurrentSession = Depends(get_current_session),
+    service: AuthService = Depends(get_auth_service),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    # NFR-10: el usuario a eliminar sale de la sesión, nunca del cuerpo.
+    await service.delete_account(current.user.id, payload.confirm if payload else None)
+    return _session_ended_response(settings)

@@ -92,7 +92,12 @@ async def _http_error_handler(_: Request, exc: Exception) -> JSONResponse:
 
 async def _unhandled_error_handler(_: Request, exc: Exception) -> JSONResponse:
     logger.error("unhandled_error", extra={"error_type": type(exc).__name__})
-    return JSONResponse(status_code=500, content=error_body("INTERNAL_ERROR", "Ocurrió un error inesperado."))
+    # Los 500 los emite ServerErrorMiddleware, por fuera del middleware de no-store.
+    return JSONResponse(
+        status_code=500,
+        content=error_body("INTERNAL_ERROR", "Ocurrió un error inesperado."),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def register_error_handlers(app: FastAPI) -> None:

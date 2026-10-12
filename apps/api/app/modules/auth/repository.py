@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import exists, func, select, update
+from sqlalchemy import delete, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import AcademicProgram, Consent, EmailVerificationToken, User, UserSession
@@ -69,6 +69,16 @@ class AuthRepository:
             .where(UserSession.id == session_id)
             .values(last_seen_at=now, expires_at=expires_at)
         )
+
+    async def delete_session(self, session_id: uuid.UUID) -> None:
+        await self._session.execute(delete(UserSession).where(UserSession.id == session_id))
+
+    async def delete_user(self, user_id: uuid.UUID) -> bool:
+        """Borra el usuario; el ON DELETE CASCADE de la BD elimina todo lo que cuelga de él."""
+        result = await self._session.execute(
+            delete(User).where(User.id == user_id).returning(User.id)
+        )
+        return result.first() is not None
 
     async def add_user(self, user: User) -> None:
         self._session.add(user)

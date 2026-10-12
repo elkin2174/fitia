@@ -18,6 +18,7 @@ from app.core.mailer import Mailer, send_safely
 from app.core.rate_limit import RateLimiter, enforce_ip_and_email_limits
 from app.core.security import generate_token, hash_password, hash_token, password_needs_rehash, verify_password
 from app.modules.auth import validators as v
+from app.modules.auth.dependencies import unauthenticated_error
 from app.modules.auth.emails import build_verification_email, verification_link
 from app.modules.auth.models import AcademicProgram, Consent, EmailVerificationToken, User, UserSession
 from app.modules.auth.repository import AuthRepository
@@ -241,6 +242,28 @@ class AuthService:
         assert found is not None  # el guard de sesión ya comprobó que el usuario existe
         user, program = found
         return MeResult(user=user, program=program, onboarding_completed=await self._onboarding.is_completed(user_id))
+
+    async def logout(self, session_id: uuid.UUID) -> None:
+        """Invalida en el servidor solo la sesión actual; las de otros dispositivos siguen vivas."""
+        await self._repo.delete_session(session_id)
+        await self._session.commit()
+        logger.info("session_closed")  # sin identificadores, igual que account_deleted
+
+    async def delete_account(self, user_id: uuid.UUID, confirm: bool | None) -> None:
+        """Eliminación definitiva (NFR-12): un único DELETE y la BD borra en cascada el resto."""
+        if confirm is not True:
+            raise AppError(
+                400,
+                "CONFIRMATION_REQUIRED",
+                "Confirma que quieres eliminar tu cuenta. Esta acción es definitiva y no se puede deshacer.",
+            )
+        if not await self._repo.delete_user(user_id):
+            # Otra petición ya la eliminó (p. ej. doble clic): la sesión ya no es válida.
+            await self._session.rollback()
+            raise unauthenticated_error(self._settings)
+        await self._session.commit()
+        # Sin user_id ni correo: la eliminación también debe ser real en los logs.
+        logger.info("account_deleted")
 
     def _validate_login(self, data: LoginRequest, email: str) -> None:
         errors: list[FieldError] = []
