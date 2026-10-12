@@ -32,3 +32,6 @@ playwright-report/
 
 # Logs
 *.log
+
+# CodeGraph Index
+.codegraph/
