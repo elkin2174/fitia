@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://fitia-api.onrender.com/api/:path*"
+      "destination": "https://fitia-api-liyx.onrender.com/api/:path*"
     },
     {
       "source": "/((?!api/|assets/|favicon\\.svg).*)",
