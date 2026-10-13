@@ -1,18 +1,35 @@
-version: "3.8"
+# Entorno de desarrollo completo de FITIA: base de datos + API + frontend.
+#
+#   cp .env.example .env        (opcional: todo tiene valores por defecto)
+#   docker compose up --build
+#
+# Frontend: http://localhost:3000   API: http://localhost:8000/docs   Postgres: localhost:5433
+# Los puertos del equipo se pueden cambiar en .env (POSTGRES_PORT, API_PORT, WEB_PORT).
+#
+# Los montajes llevan :z (etiqueta SELinux, necesaria en Fedora/RHEL; se ignora en otros sistemas).
 
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: fitia_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-fitia_db}
+      TZ: America/Bogota
     ports:
-      - "5432:5432"
+      # Solo en localhost. Por defecto 5433 para no chocar con un Postgres instalado en el equipo (5432).
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Crea fitia_test (pytest) la primera vez que se inicializa el volumen.
+      - ./apps/api/docker/init-test-db.sql:/docker-entrypoint-initdb.d/10-init-test-db.sql:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-fitia_db}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   api:
     build:
@@ -21,14 +38,40 @@ services:
     container_name: fitia_api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/fitia_db
-      - TZ=America/Bogota
+      ENV: development
+      TZ: America/Bogota
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-fitia_db}
+      DATABASE_URL_DIRECT: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-fitia_db}
+      # Para `docker compose exec api pytest` (la suite recrea el esquema de fitia_test, nunca el de desarrollo).
+      TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/fitia_test
+      # El correo de verificación sale en los logs del contenedor: `docker compose logs -f api`.
+      FRONTEND_BASE_URL: http://localhost:${WEB_PORT:-3000}
+      MAIL_PROVIDER: console
+      COOKIE_SECURE: "false"
+      # IA: "fake" no necesita clave. Para Gemini real: AI_PROVIDER=gemini y GEMINI_API_KEY en .env.
+      AI_PROVIDER: ${AI_PROVIDER:-fake}
+      AI_ENABLED: ${AI_ENABLED:-true}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
-      - ./apps/api:/app
+      # Solo el código (no .venv ni cachés): la recarga en caliente sigue funcionando.
+      - ./apps/api/app:/app/app:z
+      - ./apps/api/migrations:/app/migrations:z
+      - ./apps/api/seeds:/app/seeds:z
+      - ./apps/api/prompts:/app/prompts:z
+      - ./apps/api/scripts:/app/scripts:z
+      - ./apps/api/tests:/app/tests:z
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 40s # migra y carga los programas antes de arrancar
 
   web:
     build:
@@ -37,12 +80,18 @@ services:
     container_name: fitia_web
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      TZ: America/Bogota
+      # Vite reenvía /api a este servicio: la cookie fitia_session queda en el mismo origen (ADR-04).
+      VITE_API_PROXY_TARGET: http://api:8000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     volumes:
-      - ./apps/web:/app
-      - /app/node_modules
+      # Solo el código. node_modules vive en la imagen; si cambias package.json, `docker compose up --build`.
+      - ./apps/web/src:/app/src:z
+      - ./apps/web/public:/app/public:z
 
 volumes:
   postgres_data:

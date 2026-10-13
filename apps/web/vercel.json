@@ -3,6 +3,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://fitia-api.onrender.com/api/:path*"
+    },
+    {
+      "source": "/((?!api/|assets/|favicon\\.svg).*)",
+      "destination": "/index.html"
     }
   ]
 }

@@ -35,3 +35,6 @@ playwright-report/
 
 # CodeGraph Index
 .codegraph/
+
+# TypeScript incremental
+*.tsbuildinfo

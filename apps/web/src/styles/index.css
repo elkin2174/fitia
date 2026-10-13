@@ -1,0 +1,146 @@
+@import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource/atkinson-hyperlegible-next/400.css";
+@import "@fontsource/atkinson-hyperlegible-next/700.css";
+
+/*
+ * Tokens de FITIA. Concepto: la pista del CDU de Univalle.
+ * El rojo institucional es el tartán; el verde cancha marca descanso y logros.
+ * Contrastes verificados AA (texto normal ≥ 4.5:1) en claro y oscuro.
+ */
+:root {
+  --c-bg: #f6f7f5;          /* tiza */
+  --c-surface: #ffffff;
+  --c-surface-2: #eceeeb;
+  --c-line: #d5d9d6;
+  --c-ink: #1c2126;         /* grafito */
+  --c-muted: #565f69;
+  --c-primary: #c8102e;     /* rojo Univalle (tartán) */
+  --c-primary-strong: #a50d26;
+  --c-primary-text: #b00e29;
+  --c-on-primary: #ffffff;
+  --c-rest: #146c5b;        /* cancha */
+  --c-rest-soft: #e3f1ec;
+  --c-info: #2563a6;
+  --c-info-soft: #e5eef8;
+  --c-warn: #8f4b05;
+  --c-warn-soft: #fbf0df;
+  --c-danger: #b3132d;
+  --c-danger-soft: #fbe6e9;
+  --c-success: #146c5b;
+  --c-success-soft: #e3f1ec;
+  --c-focus: #2563a6;
+  --shadow-raised: 0 1px 2px rgb(28 33 38 / 0.06), 0 6px 18px -8px rgb(28 33 38 / 0.18);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg: #15191e;
+    --c-surface: #1e242b;
+    --c-surface-2: #272e36;
+    --c-line: #38414b;
+    --c-ink: #eef1f4;
+    --c-muted: #a8b1bc;
+    --c-primary: #d61f3c;
+    --c-primary-strong: #ef3a56;
+    --c-primary-text: #ff8494;
+    --c-on-primary: #ffffff;
+    --c-rest: #5fc8a9;
+    --c-rest-soft: #173a32;
+    --c-info: #7fb2ec;
+    --c-info-soft: #1a2c40;
+    --c-warn: #f2b45c;
+    --c-warn-soft: #3a2a14;
+    --c-danger: #ff8494;
+    --c-danger-soft: #3e1a20;
+    --c-success: #5fc8a9;
+    --c-success-soft: #173a32;
+    --c-focus: #7fb2ec;
+    --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 22px -10px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --font-display: "Bricolage Grotesque Variable", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Atkinson Hyperlegible Next", "Segoe UI", system-ui, sans-serif;
+
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-line: var(--c-line);
+  --color-ink: var(--c-ink);
+  --color-muted: var(--c-muted);
+  --color-primary: var(--c-primary);
+  --color-primary-strong: var(--c-primary-strong);
+  --color-primary-text: var(--c-primary-text);
+  --color-on-primary: var(--c-on-primary);
+  --color-rest: var(--c-rest);
+  --color-rest-soft: var(--c-rest-soft);
+  --color-info: var(--c-info);
+  --color-info-soft: var(--c-info-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-success: var(--c-success);
+  --color-success-soft: var(--c-success-soft);
+  --color-focus: var(--c-focus);
+
+  --radius-control: 0.75rem;
+  --radius-card: 1.25rem;
+  --shadow-raised: var(--shadow-raised);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    font-size: 1.0625rem;
+    line-height: 1.55;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display text-ink;
+    letter-spacing: -0.015em;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  :focus-visible {
+    outline: 3px solid var(--c-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Pista: franjas del carril para el día de hoy (el único elemento decorativo de la app). */
+@utility lane-stripes {
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0 14px,
+    rgb(255 255 255 / 0.18) 14px 16px
+  );
+}
+
+@keyframes runner {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+@utility animate-runner {
+  animation: runner 1.6s ease-in-out infinite;
+}
