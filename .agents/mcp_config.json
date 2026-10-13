@@ -3,6 +3,18 @@
     "chrome-devtools": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp@latest"]
+    },
+    "render": {
+      "serverUrl": "https://mcp.render.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${RENDER_API_KEY}"
+      }
+    },
+    "vercel": {
+      "serverUrl": "https://mcp.vercel.com"
+    },
+    "supabase": {
+      "serverUrl": "https://mcp.supabase.com/mcp?project_ref=pwbezghttaflmgfmzrgw&features=docs%2Caccount%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions%2Cbranching%2Cstorage"
     }
   }
 }
