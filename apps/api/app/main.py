@@ -10,6 +10,7 @@ from app.core.logging import configure_logging
 from app.modules.auth.router import router as auth_router
 from app.modules.onboarding.router import router as onboarding_router
 from app.modules.plan.router import router as plan_router
+from app.modules.profile.router import ranking_router
 from app.modules.profile.router import router as profile_router
 
 configure_logging()
@@ -58,4 +59,5 @@ api_v1.include_router(auth_router)
 api_v1.include_router(onboarding_router)
 api_v1.include_router(plan_router)
 api_v1.include_router(profile_router)
+api_v1.include_router(ranking_router)
 app.include_router(api_v1)

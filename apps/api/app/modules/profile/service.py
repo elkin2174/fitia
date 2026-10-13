@@ -7,10 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import Clock
 from app.core.errors import AppError, FieldError
-from app.modules.profile.models import Profile
+from app.modules.profile.models import PhysicalMeasurement, Profile
 from app.modules.profile.repository import ProfileRepository
-from app.modules.profile.schemas import DiagnosticProfile
-from app.modules.profile.validators import validate_diagnostic, validation_message
+from app.modules.profile.schemas import DiagnosticProfile, RankingItem, StudentProfile
+from app.modules.profile.validators import (
+    validate_diagnostic,
+    validate_profile_update,
+    validation_message,
+)
 
 logger = logging.getLogger("fitia.profile")
 
@@ -46,6 +50,29 @@ class ProfileService:
             session_minutes=profile.session_minutes,
             training_days=await self._repo.get_training_days(user_id),
             has_machine_access=profile.has_machine_access,
+        )
+
+    async def get_profile(self, user_id: uuid.UUID) -> StudentProfile | None:
+        """Perfil completo del estudiante (HU 7): diagnóstico + datos físicos + ranking privado."""
+        profile = await self._repo.get(user_id)
+        if profile is None:
+            return None
+        training_days = await self._repo.get_training_days(user_id)
+        ranking_pos = await self._repo.get_ranking_position(user_id)
+        return StudentProfile(
+            goal=profile.goal,
+            term_weeks=profile.term_weeks,
+            fitness_level=profile.fitness_level,
+            session_minutes=profile.session_minutes,
+            training_days=training_days,
+            has_machine_access=profile.has_machine_access,
+            weight_kg=profile.weight_kg,
+            height_cm=profile.height_cm,
+            physical_updated_at=profile.physical_updated_at,
+            is_public_ranking=profile.is_public_ranking,
+            points=profile.points,
+            level=profile.level,
+            ranking_position=ranking_pos,
         )
 
     async def create_from_diagnostic(self, user_id: uuid.UUID, answers: DiagnosticProfile) -> DiagnosticProfile:
@@ -121,6 +148,85 @@ class ProfileService:
         updated = await self.get_diagnostic(user_id)
         assert updated is not None
         return updated
+
+    async def update_profile(self, user_id: uuid.UUID, raw_payload: Any) -> StudentProfile:
+        """Actualiza cualquier dato editable del perfil en UNA transacción (HU 7).
+        Valida que el perfil exista (404 si no), rechaza campos no editables (422),
+        valida tipos estrictos y opciones de opciones cerradas.
+        Registra mediciones físicas en el historial si peso o estatura cambian.
+        Si no hay cambios frente al perfil actual, evita escrituras innecesarias.
+        """
+        current = await self.get_profile(user_id)
+        if current is None:
+            raise AppError(404, "PROFILE_NOT_FOUND", "No se encontró el perfil del estudiante.")
+
+        values, errors = validate_profile_update(raw_payload)
+        if errors:
+            raise AppError(422, "VALIDATION_ERROR", validation_message(errors), errors)
+        if not values:
+            raise AppError(
+                422,
+                "VALIDATION_ERROR",
+                "Debes incluir al menos un campo del perfil para actualizar.",
+                [FieldError("body", "EMPTY_UPDATE")],
+            )
+
+        # Comprobar si realmente hubo cambios
+        changed = False
+        for k, v in values.items():
+            if getattr(current, k) != v:
+                changed = True
+                break
+
+        if not changed:
+            return current
+
+        now = self._clock.now()
+        try:
+            # Si se actualizó peso o estatura, agregar medición al historial inmutable
+            physical_changed = (
+                ("weight_kg" in values and values["weight_kg"] != current.weight_kg)
+                or ("height_cm" in values and values["height_cm"] != current.height_cm)
+            )
+            if physical_changed:
+                new_weight = values.get("weight_kg", current.weight_kg)
+                new_height = values.get("height_cm", current.height_cm)
+                await self._repo.add_physical_measurement(
+                    PhysicalMeasurement(
+                        user_id=user_id,
+                        weight_kg=new_weight,
+                        height_cm=new_height,
+                        recorded_at=now,
+                    )
+                )
+                values["physical_updated_at"] = now
+
+            await self._repo.update_profile(user_id, values, now)
+            if "training_days" in values:
+                await self._repo.replace_training_days(user_id, values["training_days"])
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+        logger.info(
+            "profile_updated",
+            extra={"user_id": str(user_id), "fields": sorted(list(values.keys()))},
+        )
+        updated = await self.get_profile(user_id)
+        assert updated is not None
+        return updated
+
+    async def get_public_ranking(self, limit: int = 100) -> list[RankingItem]:
+        """Obtiene el ranking público ordenado (HU32, RANK-1).
+        Excluye a usuarios que tengan is_public_ranking = False.
+        """
+        rows = await self._repo.get_public_ranking(limit=limit)
+        return [RankingItem(position=pos, nickname=nick, points=pts, level=lvl) for pos, nick, pts, lvl in rows]
+
+    async def get_physical_history(self, user_id: uuid.UUID) -> list[PhysicalMeasurement]:
+        """Consulta el historial de mediciones físicas del estudiante."""
+        return await self._repo.get_physical_measurements(user_id)
 
     @staticmethod
     def _profile_exists_error() -> AppError:

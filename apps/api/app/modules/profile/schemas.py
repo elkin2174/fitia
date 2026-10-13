@@ -1,3 +1,5 @@
+import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -26,10 +28,52 @@ class DiagnosticProfile(BaseModel):
     has_machine_access: bool
 
 
+class StudentProfile(BaseModel):
+    """Perfil completo del estudiante (HU 7): diagnóstico + datos físicos + ranking."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    goal: Goal
+    term_weeks: TermWeeks
+    fitness_level: FitnessLevel
+    session_minutes: SessionMinutes
+    training_days: list[Weekday]
+    has_machine_access: bool
+    weight_kg: float | None = None
+    height_cm: float | None = None
+    physical_updated_at: datetime | None = None
+    is_public_ranking: bool = True
+    points: int = 0
+    level: int = 1
+    ranking_position: int | None = None
+
+
 class ProfileResponse(BaseModel):
-    profile: DiagnosticProfile
+    profile: StudentProfile
 
 
 class UpdateProfileResponse(BaseModel):
-    profile: DiagnosticProfile
+    profile: StudentProfile
     message: str
+
+
+class RankingItem(BaseModel):
+    position: int
+    nickname: str
+    points: int
+    level: int
+
+
+class PublicRankingResponse(BaseModel):
+    items: list[RankingItem]
+
+
+class PhysicalMeasurementOut(BaseModel):
+    id: uuid.UUID
+    weight_kg: float | None
+    height_cm: float | None
+    recorded_at: datetime
+
+
+class PhysicalHistoryResponse(BaseModel):
+    history: list[PhysicalMeasurementOut]

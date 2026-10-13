@@ -134,7 +134,8 @@ async def test_ac_6_2_actualizacion_exitosa_persiste_y_devuelve_mensaje(
 
     body = response.json()
     assert "profile" in body
-    assert body["profile"] == new_answers
+    for k, v in new_answers.items():
+        assert body["profile"][k] == v
     assert "message" in body
     assert "Tu diagnóstico se actualizó correctamente" in body["message"]
     assert "próximo plan" in body["message"]

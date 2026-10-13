@@ -10,3 +10,8 @@ FITNESS_LEVELS: tuple[str, ...] = ("beginner", "intermediate", "advanced")
 SESSION_MINUTES: tuple[int, ...] = (15, 30, 45, 60)
 MACHINE_ACCESS: tuple[bool, ...] = (True, False)
 WEEKDAYS: tuple[int, ...] = (1, 2, 3, 4, 5)  # 1 = lunes … 5 = viernes
+
+WEIGHT_MIN_KG: float = 20.0
+WEIGHT_MAX_KG: float = 400.0
+HEIGHT_MIN_CM: float = 50.0
+HEIGHT_MAX_CM: float = 270.0
