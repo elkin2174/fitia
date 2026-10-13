@@ -2,7 +2,12 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.modules.plan.calendar import remaining_training_days, target_week, week_days
+from app.modules.plan.calendar import (
+    find_next_training_day,
+    remaining_training_days,
+    target_week,
+    week_days,
+)
 
 MONDAY = date(2026, 10, 12)
 
@@ -57,3 +62,70 @@ def test_siempre_cinco_dias_de_lunes_a_viernes() -> None:
 
     assert [d.weekday for d in days] == [1, 2, 3, 4, 5]
     assert [d.date for d in days] == [MONDAY + timedelta(days=i) for i in range(5)]
+
+
+class _DummyDay:
+    def __init__(self, plan_date: date, title: str) -> None:
+        self.plan_date = plan_date
+        self.title = title
+
+
+def test_proximo_dia_entrenamiento_misma_semana() -> None:
+    tuesday = date(2026, 10, 13)
+    plan_days = [
+        _DummyDay(date(2026, 10, 12), "Lunes"),
+        _DummyDay(date(2026, 10, 14), "Miércoles"),
+        _DummyDay(date(2026, 10, 16), "Viernes"),
+    ]
+    nxt = find_next_training_day(tuesday, MONDAY, plan_days, None, [1, 3, 5])
+    assert nxt is not None
+    assert nxt.date == date(2026, 10, 14)
+    assert nxt.weekday == 3
+    assert nxt.title == "Miércoles"
+    assert nxt.planned is True
+
+
+def test_proximo_dia_entrenamiento_siguiente_semana_con_plan() -> None:
+    friday = date(2026, 10, 16)
+    plan_days = [_DummyDay(date(2026, 10, 12), "Lunes")]
+    next_week_days = [_DummyDay(date(2026, 10, 19), "Fuerza superior")]
+    nxt = find_next_training_day(friday, MONDAY, plan_days, next_week_days, [1, 3, 5])
+    assert nxt is not None
+    assert nxt.date == date(2026, 10, 19)
+    assert nxt.weekday == 1
+    assert nxt.title == "Fuerza superior"
+    assert nxt.planned is True
+
+
+def test_proximo_dia_entrenamiento_siguiente_semana_sin_plan() -> None:
+    friday = date(2026, 10, 16)
+    plan_days = [_DummyDay(date(2026, 10, 12), "Lunes")]
+    nxt = find_next_training_day(friday, MONDAY, plan_days, None, [1, 3, 5])
+    assert nxt is not None
+    assert nxt.date == date(2026, 10, 19)
+    assert nxt.weekday == 1
+    assert nxt.title is None
+    assert nxt.planned is False
+
+
+def test_proximo_dia_fin_de_semana_con_plan() -> None:
+    saturday = date(2026, 10, 17)
+    next_monday = date(2026, 10, 19)
+    next_plan_days = [_DummyDay(date(2026, 10, 19), "Rutina lunes")]
+    nxt = find_next_training_day(saturday, next_monday, next_plan_days, None, [1, 3, 5])
+    assert nxt is not None
+    assert nxt.date == date(2026, 10, 19)
+    assert nxt.weekday == 1
+    assert nxt.title == "Rutina lunes"
+    assert nxt.planned is True
+
+
+def test_proximo_dia_fin_de_semana_sin_plan() -> None:
+    sunday = date(2026, 10, 18)
+    next_monday = date(2026, 10, 19)
+    nxt = find_next_training_day(sunday, next_monday, None, None, [2, 4])
+    assert nxt is not None
+    assert nxt.date == date(2026, 10, 20)
+    assert nxt.weekday == 2
+    assert nxt.title is None
+    assert nxt.planned is False

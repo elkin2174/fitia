@@ -10,8 +10,22 @@ from app.core.clock import BOGOTA_TZ, Clock
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.rate_limit import RateLimiter
-from app.modules.plan.calendar import CalendarDay, date_for, target_week, week_days
-from app.modules.plan.models import STATUS_GENERATING, PlanDay, WeeklyPlan
+from app.modules.plan.calendar import (
+    CalendarDay,
+    NextTrainingDayView,
+    date_for,
+    find_next_training_day,
+    target_week,
+    week_days,
+)
+from app.modules.plan.models import (
+    EXERCISE_DISCLAIMER,
+    STATUS_GENERATING,
+    STATUS_READY,
+    PlanDay,
+    PlanExercise,
+    WeeklyPlan,
+)
 from app.modules.plan.repository import PlanRepository
 from app.modules.plan.runner import PlanGenerationJob, PlanJobScheduler
 from app.modules.profile.schemas import DiagnosticProfile
@@ -40,6 +54,62 @@ class CurrentPlanView:
     can_regenerate: bool
     failure_code: str | None
     days: list[PlanDayView]
+
+
+@dataclass(frozen=True)
+class PlanExerciseView:
+    id: uuid.UUID
+    position: int
+    name: str
+    sets: int
+    reps: int | None
+    work_seconds: int | None
+    rest_seconds: int
+    steps: list[str]
+    disclaimer: str
+
+
+@dataclass(frozen=True)
+class PlanDayDetailView:
+    date: date
+    weekday: int
+    status: str
+    title: str | None
+    estimated_minutes: int | None
+    exercises: list[PlanExerciseView]
+
+
+@dataclass(frozen=True)
+class TodayPlanView:
+    date: date
+    is_weekend: bool
+    plan_status: str
+    regenerating: bool
+    failure_code: str | None
+    day: PlanDayDetailView | None
+    next_training_day: NextTrainingDayView | None
+
+
+@dataclass(frozen=True)
+class ExerciseGuideDetailView:
+    exercise_id: uuid.UUID
+    name: str
+    steps: list[str]
+    disclaimer: str
+
+
+def _exercise_view(ex: PlanExercise) -> PlanExerciseView:
+    return PlanExerciseView(
+        id=ex.id,
+        position=ex.position,
+        name=ex.name,
+        sets=ex.sets,
+        reps=ex.reps,
+        work_seconds=ex.work_seconds,
+        rest_seconds=ex.rest_seconds,
+        steps=list(ex.steps),
+        disclaimer=EXERCISE_DISCLAIMER,
+    )
 
 
 def _snapshot(diagnostic: DiagnosticProfile) -> dict[str, object]:
@@ -205,3 +275,139 @@ class PlanService:
     def _seconds_until(self, day: date) -> int:
         target = datetime.combine(day, time.min, tzinfo=BOGOTA_TZ)
         return max(1, int((target - self._clock.now()).total_seconds()))
+
+    async def today(self, user_id: uuid.UUID) -> TodayPlanView:
+        await self._expire_stale(user_id)
+        diagnostic = await self._diagnostic(user_id)
+        today = self._clock.today_date()
+        weekday = today.isoweekday()
+        is_weekend = weekday > 5
+        week_start, start_date = target_week(today)
+
+        ready = await self._repo.get_ready(user_id, week_start)
+        generating = await self._repo.get_generating(user_id)
+        failed = await self._repo.get_latest_failed(user_id)
+
+        if ready is not None:
+            plan_status = "ready"
+        elif generating is not None:
+            plan_status = "generating"
+        elif failed is not None:
+            plan_status = "failed"
+        else:
+            plan_status = "none"
+
+        regenerating = ready is not None and generating is not None
+        failure_code = failed.failure_code if failed else None
+
+        day_view: PlanDayDetailView | None = None
+        if ready is not None and not is_weekend:
+            day_obj, exercises = await self._repo.get_day_with_exercises(ready.id, today)
+            if day_obj is not None:
+                day_view = PlanDayDetailView(
+                    date=today,
+                    weekday=weekday,
+                    status="training",
+                    title=day_obj.title,
+                    estimated_minutes=day_obj.estimated_minutes,
+                    exercises=[_exercise_view(e) for e in exercises],
+                )
+            else:
+                status = "rest" if today >= ready.start_date else "unplanned"
+                day_view = PlanDayDetailView(
+                    date=today,
+                    weekday=weekday,
+                    status=status,
+                    title=None,
+                    estimated_minutes=None,
+                    exercises=[],
+                )
+
+        next_training_day: NextTrainingDayView | None = None
+        if day_view is None or day_view.status != "training":
+            if is_weekend:
+                ready_days = await self._repo.get_days(ready.id) if ready else None
+                next_training_day = find_next_training_day(
+                    today=today,
+                    target_week_start=week_start,
+                    current_plan_days=ready_days,
+                    next_week_plan_days=None,
+                    profile_training_weekdays=diagnostic.training_days,
+                )
+            else:
+                current_plan_days = await self._repo.get_days(ready.id) if ready else None
+                next_week_start = week_start + timedelta(days=7)
+                next_week_ready = await self._repo.get_ready(user_id, next_week_start)
+                next_week_days = await self._repo.get_days(next_week_ready.id) if next_week_ready else None
+                next_training_day = find_next_training_day(
+                    today=today,
+                    target_week_start=week_start,
+                    current_plan_days=current_plan_days,
+                    next_week_plan_days=next_week_days,
+                    profile_training_weekdays=diagnostic.training_days,
+                )
+
+        return TodayPlanView(
+            date=today,
+            is_weekend=is_weekend,
+            plan_status=plan_status,
+            regenerating=regenerating,
+            failure_code=failure_code,
+            day=day_view,
+            next_training_day=next_training_day,
+        )
+
+    async def get_day(self, user_id: uuid.UUID, target_date: date) -> PlanDayDetailView:
+        await self._expire_stale(user_id)
+        today = self._clock.today_date()
+        week_start, _ = target_week(today)
+
+        if (
+            target_date < week_start
+            or target_date > week_start + timedelta(days=4)
+            or target_date.isoweekday() > 5
+        ):
+            raise AppError(404, "PLAN_DAY_NOT_FOUND", "El día solicitado no pertenece a la semana activa.")
+
+        ready = await self._repo.get_ready(user_id, week_start)
+        if ready is None:
+            raise AppError(404, "PLAN_NOT_FOUND", "No tienes un plan vigente para esta semana.")
+
+        day_obj, exercises = await self._repo.get_day_with_exercises(ready.id, target_date)
+        if day_obj is not None:
+            return PlanDayDetailView(
+                date=target_date,
+                weekday=target_date.isoweekday(),
+                status="training",
+                title=day_obj.title,
+                estimated_minutes=day_obj.estimated_minutes,
+                exercises=[_exercise_view(e) for e in exercises],
+            )
+
+        status = "rest" if target_date >= ready.start_date else "unplanned"
+        return PlanDayDetailView(
+            date=target_date,
+            weekday=target_date.isoweekday(),
+            status=status,
+            title=None,
+            estimated_minutes=None,
+            exercises=[],
+        )
+
+    async def get_exercise_guide(
+        self, user_id: uuid.UUID, exercise_id: uuid.UUID
+    ) -> ExerciseGuideDetailView:
+        await self._expire_stale(user_id)
+        today = self._clock.today_date()
+        week_start, _ = target_week(today)
+
+        exercise = await self._repo.get_exercise_guide(user_id, week_start, exercise_id)
+        if exercise is None:
+            raise AppError(404, "EXERCISE_NOT_FOUND", "No se encontró el ejercicio solicitado en tu plan vigente.")
+
+        return ExerciseGuideDetailView(
+            exercise_id=exercise.id,
+            name=exercise.name,
+            steps=list(exercise.steps),
+            disclaimer=EXERCISE_DISCLAIMER,
+        )

@@ -12,7 +12,7 @@ export function HistoryPage() {
 
   return (
     <Page>
-      <Link to="/perfil" className="inline-flex min-h-11 items-center font-bold text-primary-text">
+      <Link to="/perfil" className="inline-flex min-h-11 items-center font-bold text-primary-text hover:underline focus-visible:outline-2 focus-visible:outline-focus rounded-sm cursor-pointer">
         ‹ Volver al perfil
       </Link>
       <h1 className="mt-2 text-3xl font-extrabold">Historial de peso y estatura</h1>

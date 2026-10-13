@@ -11,10 +11,13 @@ import { ToastProvider } from "../shared/ui/Toast";
 import { API, apiError, http, ok, server } from "./server";
 
 /** Monta la app real (rutas, guards, providers) en memoria, en la ruta indicada. */
-export function renderRoute(path: string, options: { me?: MeResponse | null; strict?: boolean; advanceTimers?: (ms: number) => void } = {}) {
+export function renderRoute(
+  entry: string | { pathname: string; search?: string; hash?: string; state?: unknown },
+  options: { me?: MeResponse | null; strict?: boolean; advanceTimers?: (ms: number) => void } = {}
+) {
   const { me = null, strict = false } = options;
   server.use(http.get(`${API}/me`, () => (me ? ok(me) : apiError(401, "UNAUTHENTICATED", "Debes iniciar sesión para continuar."))));
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
+  const router = createMemoryRouter(routes, { initialEntries: [entry] });
   const queryClient = createQueryClient();
   const app = (
     <QueryClientProvider client={queryClient}>

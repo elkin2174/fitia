@@ -37,7 +37,12 @@ export function ConfirmDialog({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 p-4 sm:items-center">
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 p-4 sm:items-center"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
       <div
         ref={boxRef}
         role="dialog"
@@ -47,7 +52,9 @@ export function ConfirmDialog({
         onKeyDown={(e) => {
           if (e.key === "Escape") onCancel();
           if (e.key === "Tab") {
-            const focusables = boxRef.current?.querySelectorAll<HTMLElement>("button");
+            const focusables = boxRef.current?.querySelectorAll<HTMLElement>(
+              'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
             if (!focusables?.length) return;
             const first = focusables[0]!;
             const last = focusables[focusables.length - 1]!;

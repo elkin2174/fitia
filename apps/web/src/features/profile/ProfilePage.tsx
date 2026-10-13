@@ -66,15 +66,15 @@ export function ProfilePage() {
         <dl className="grid grid-cols-3 text-center">
           <div>
             <dt className="text-sm text-muted">Nivel</dt>
-            <dd className="font-display text-3xl font-extrabold">{data.level}</dd>
+            <dd className="font-display text-3xl font-extrabold tabular-nums">{data.level}</dd>
           </div>
           <div className="border-x border-line">
             <dt className="text-sm text-muted">Puntos</dt>
-            <dd className="font-display text-3xl font-extrabold">{data.points}</dd>
+            <dd className="font-display text-3xl font-extrabold tabular-nums">{data.points}</dd>
           </div>
           <div>
             <dt className="text-sm text-muted">Posición</dt>
-            <dd className="font-display text-3xl font-extrabold">{data.ranking_position ? `#${data.ranking_position}` : "—"}</dd>
+            <dd className="font-display text-3xl font-extrabold tabular-nums">{data.ranking_position ? `#${data.ranking_position}` : "—"}</dd>
           </div>
         </dl>
         {noPoints && (

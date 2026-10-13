@@ -76,3 +76,72 @@ export function plan(overrides: Partial<CurrentPlan> = {}): CurrentPlan {
     ...overrides,
   };
 }
+
+export const EXERCISE_DISCLAIMER =
+  "Esta guía es orientativa y no reemplaza la indicación de un profesional del deporte o de la salud. Si sientes dolor, detente.";
+
+export function exerciseFixture(overrides: Partial<import("../shared/api/types").PlanExercise> = {}): import("../shared/api/types").PlanExercise {
+  return {
+    id: "e1111111-1111-1111-1111-111111111111",
+    position: 1,
+    name: "Sentadilla libre",
+    sets: 3,
+    reps: 12,
+    work_seconds: null,
+    rest_seconds: 60,
+    guide: {
+      steps: [
+        "Párate con los pies al ancho de hombros.",
+        "Baja flexionando rodillas y caderas como si te sentaras.",
+        "Empuja con los talones para volver a la posición inicial.",
+      ],
+      disclaimer: EXERCISE_DISCLAIMER,
+    },
+    ...overrides,
+  };
+}
+
+export function planDayDetailFixture(overrides: Partial<import("../shared/api/types").PlanDayDetail> = {}): import("../shared/api/types").PlanDayDetail {
+  return {
+    date: "2026-10-12",
+    weekday: 1,
+    status: "training",
+    title: "Fuerza tren inferior",
+    estimated_minutes: 30,
+    exercises: [
+      exerciseFixture(),
+      exerciseFixture({
+        id: "e2222222-2222-2222-2222-222222222222",
+        position: 2,
+        name: "Plancha frontal",
+        sets: 3,
+        reps: null,
+        work_seconds: 30,
+        rest_seconds: 45,
+        guide: {
+          steps: [
+            "Apoya los antebrazos y las puntas de los pies en el suelo.",
+            "Mantén el cuerpo en línea recta desde la cabeza a los talones.",
+            "Respira constantemente sin arquear la espalda.",
+          ],
+          disclaimer: EXERCISE_DISCLAIMER,
+        },
+      }),
+    ],
+    ...overrides,
+  };
+}
+
+export function todayPlanFixture(overrides: Partial<import("../shared/api/types").TodayPlan> = {}): import("../shared/api/types").TodayPlan {
+  return {
+    date: "2026-10-12",
+    is_weekend: false,
+    plan_status: "ready",
+    regenerating: false,
+    failure: null,
+    day: planDayDetailFixture(),
+    next_training_day: null,
+    ...overrides,
+  };
+}
+

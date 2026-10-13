@@ -162,3 +162,38 @@ def test_con_acceso_a_maquinas_se_permiten() -> None:
     validated = _parse(plan, with_machines)
 
     assert any(ex.requires_machine for day in validated.days for ex in day.exercises)
+
+
+def test_ac_13_5_sin_steps_rechaza_plan() -> None:
+    plan = _plan()
+    del _first(plan)["steps"]
+    with pytest.raises(AIInvalidOutput):
+        _parse(plan)
+
+
+def test_ac_13_5_steps_vacio_rechaza_plan() -> None:
+    plan = _plan()
+    _first(plan)["steps"] = []
+    with pytest.raises(AIInvalidOutput, match="2 a 4 pasos"):
+        _parse(plan)
+
+
+def test_ac_13_5_un_solo_paso_rechaza_plan() -> None:
+    plan = _plan()
+    _first(plan)["steps"] = [STEP]
+    with pytest.raises(AIInvalidOutput, match="2 a 4 pasos"):
+        _parse(plan)
+
+
+def test_ac_13_5_cinco_pasos_rechaza_plan() -> None:
+    plan = _plan()
+    _first(plan)["steps"] = [f"Paso {i}: {STEP}" for i in range(1, 6)]
+    with pytest.raises(AIInvalidOutput, match="2 a 4 pasos"):
+        _parse(plan)
+
+
+def test_ac_13_5_paso_en_blanco_rechaza_plan() -> None:
+    plan = _plan()
+    _first(plan)["steps"] = [STEP, "   "]
+    with pytest.raises(AIInvalidOutput, match="paso vacío"):
+        _parse(plan)

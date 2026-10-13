@@ -34,7 +34,7 @@ export function DiagnosticPage() {
       // 409/429/errores: la pantalla de inicio consulta el estado real y ofrece las acciones.
     }
     await queryClient.invalidateQueries({ queryKey: planKey });
-    navigate("/inicio", { replace: true });
+    navigate("/inicio", { replace: true, state: { fromDiagnostic: true } });
   };
 
   const submit = useMutation({
@@ -43,7 +43,7 @@ export function DiagnosticPage() {
     onError: (error) => {
       if (isApiError(error, "PROFILE_EXISTS")) {
         session.markOnboarding(true);
-        navigate("/inicio", { replace: true });
+        navigate("/inicio", { replace: true, state: { fromDiagnostic: true } });
         return;
       }
       if (isApiError(error, "VALIDATION_ERROR")) {

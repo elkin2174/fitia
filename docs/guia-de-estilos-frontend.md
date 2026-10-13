@@ -305,7 +305,7 @@ Definida en `apps/web/src/app/AppLayout.tsx`:
 
 ### 4.2 Barra de navegación inferior
 
-`apps/web/src/shared/ui/BottomNav.tsx`. Tres destinos: **Inicio** (`/inicio`), **Ranking** (`/ranking`) y **Perfil** (`/perfil`). Fija abajo (`z-40`), `max-w-xl` centrada, tres columnas iguales, cada destino `min-h-16` (64 px) con ícono de 24 px y etiqueta en `text-sm font-bold`. Activo: `text-primary-text` y una barra de 4 × 24 px en `primary`; inactivo: `text-muted`. Respeta el área segura de iOS (`pb-[env(safe-area-inset-bottom)]`) y usa un fondo `surface/95` con desenfoque. Lleva `aria-label="Navegación principal"`.
+`apps/web/src/shared/ui/BottomNav.tsx`. Cuatro destinos: **Inicio** (`/inicio`), **Hoy** (`/hoy`), **Ranking** (`/ranking`) y **Perfil** (`/perfil`). Fija abajo (`z-40`), `max-w-xl` centrada, cuatro columnas iguales (`grid-cols-4`), cada destino `min-h-16` (64 px) con ícono SVG propio de 24 px y etiqueta en `text-xs sm:text-sm font-bold`. Cumple el tamaño objetivo táctil de ≥ 44 px sin desbordamiento a 360 px. Activo: `text-primary-text` y una barra de 4 × 24 px en `primary`; inactivo: `text-muted`. Respeta el área segura de iOS (`pb-[env(safe-area-inset-bottom)]`) y usa un fondo `surface/95` con desenfoque. Lleva `aria-label="Navegación principal"`.
 
 No aparece mientras el usuario no tenga diagnóstico completo (diagnóstico, verificación, login, registro, eliminación de cuenta sin perfil).
 
@@ -329,7 +329,10 @@ Fuente: `apps/web/src/app/routes.tsx` y `apps/web/src/app/guards.tsx`. Cada pant
 | `/iniciar-sesion` | Inicio de sesión | 2 | `PublicOnly` |
 | `/diagnostico` | Diagnóstico inicial | 4 | `RequireSession` (S) |
 | `/perfil/eliminar-cuenta` | Eliminar cuenta | 3 | `RequireSession` (S) |
-| `/inicio` | Plan semanal | 5 | `RequireProfile` (S+P) |
+| `/inicio` | Plan semanal (carriles enlazados a días) | 5, 12 | `RequireProfile` (S+P) |
+| `/hoy` | Rutina de hoy | 10 | `RequireProfile` (S+P) |
+| `/plan/dia/:fecha` | Detalle del día (solo lectura) | 12 | `RequireProfile` (S+P) |
+| *(parámetro `?ejercicio=<id>`)* | Explicación técnica (hoja inferior) | 13 | Sin cambio de ruta (`BottomSheet`) |
 | `/perfil` | Perfil | 6, 7 | `RequireProfile` (S+P) |
 | `/perfil/historial` | Historial de peso y estatura | 7 | `RequireProfile` (S+P) |
 | `*` | No encontrado (`NotFoundPage`) | — | Pública |
@@ -497,6 +500,9 @@ Ver sección 4.2 (`shared/ui/BottomNav.tsx`).
 | **Menú de cuenta** (`AccountMenu`) | `features/profile/AccountMenu.tsx` | Botón "Cuenta" con menú de "Cerrar sesión" y "Eliminar mi cuenta". Solo en pantallas sin barra inferior (diagnóstico). |
 | **Reenvío de verificación** (`ResendVerification`) | `features/auth/ResendVerification.tsx` | Botón con enfriamiento de 60 s y mensaje neutro; pide el correo si no se conoce. |
 | **Secciones del perfil** | `features/profile/ProfileDiagnosticView.tsx`, `PhysicalSection.tsx`, `PrivacySection.tsx` | Cada una guarda por separado (ver sección 6). |
+| **Hoja inferior** (`BottomSheet`) | `shared/ui/BottomSheet.tsx` | Diálogo modal accesible (`role="dialog"`, `aria-modal="true"`). Atrapa foco de teclado, cierra con `Escape`, botón de cierre (≥ 44 px) o clic en telón. Restaura foco al elemento disparador. Usado en `ExerciseGuideSheet`. |
+| **Lista de ejercicios** (`ExerciseList`) | `features/plan/ExerciseList.tsx` | Lista ordenada solo lectura (`<ol>`); cada ítem es un botón táctil (≥ 44 px) con nombre, prescripción accesible e indicador "Ver técnica". |
+| **Rutina del día** (`DayRoutine`) | `features/plan/DayRoutine.tsx` | Sección de rutina con título, duración estimada, lista de ejercicios o estado de descanso. Compartido por `/hoy` y `/plan/dia/:fecha`. |
 
 ---
 
@@ -535,13 +541,13 @@ Toda pantalla con datos remotos cubre los cuatro estados.
 
 ### 6.4 Sondeo del plan
 
-Fuente: `apps/web/src/features/plan/HomePage.tsx`.
+Fuente: `apps/web/src/features/plan/HomePage.tsx` y `usePlanGeneration.ts`.
 
 | Regla | Valor |
 |---|---|
-| Intervalo de consulta de `GET /plan/current` | 3 s (`POLL_INTERVAL_MS`), **solo** mientras `status` es `generating` o `regenerating` es `true`; con el plan listo se detiene. No bloquea el resto de la app. |
+| Intervalo de consulta de `GET /plan/current` y `GET /plan/today` | 3 s (`POLL_INTERVAL_MS`), **solo** mientras `status` es `generating` o `regenerating` es `true`; con el plan listo se detiene. No bloquea el resto de la app. |
 | Aviso de espera larga | A los 60 s (`SLOW_GENERATION_MS`): "Está tardando más de lo normal." con "Seguir esperando" (reinicia la cuenta) y "Reintentar". |
-| `none` | Se llama **una sola vez** a `POST /plan/generate` (una referencia evita repetirlo). |
+| `none` (Decisión 8) | Se genera automáticamente **solo** si el usuario llega directamente tras completar el diagnóstico (`location.state.fromDiagnostic`). En cualquier otro caso (`none` en semana nueva), muestra `EmptyState` con el botón "Generar mi plan". |
 | `failed` | **Nunca** se reintenta solo: aviso con el motivo y botón "Reintentar". |
 
 | Situación | Presentación |
@@ -763,9 +769,9 @@ apps/web/src/
 | Hover del botón primario en modo oscuro | Blanco sobre `#EF3A56` da 3.88:1, bajo 4.5:1 para texto de 17 px. | `shared/ui/Button.tsx` + `index.css` (`--c-primary-strong` oscuro) |
 | Texto pequeño sobre las franjas de pista en modo oscuro | Blanco sobre la franja da 4.08:1 (la etiqueta "Hoy" y la fecha del carril de hoy, y el pie del primer lugar del podio). | `features/plan/WeekLanes.tsx`, `features/ranking/RankingPage.tsx`, utilidad `lane-stripes` |
 | Interruptor apagado poco visible | La pista (`surface-2`) y el borde (`line`) tienen contraste bajo contra el fondo; el estado se transmite además por la posición de la perilla y por texto `sr-only`. | `shared/ui/Switch.tsx` |
-| Objetivos táctiles menores de 44 px | El interruptor mide 32 px de alto; el botón "Ver/Ocultar" de la contraseña, 40 px (`min-h-10`). | `Switch.tsx`, `TextField.tsx` |
-| Cabecera más ancha que el contenido en escritorio | Desde `sm` la cabecera usa `max-w-2xl` y la columna `max-w-xl`: la marca y el contenido no se alinean. | `app/AppLayout.tsx` |
-| Foco del diálogo | La trampa de foco solo considera botones y el fondo no se marca como inerte. | `shared/ui/ConfirmDialog.tsx` |
+| Objetivos táctiles menores de 44 px | Resuelto: El interruptor expande su zona táctil a ≥ 44 px con pseudo-elemento (`before:-inset-2`); el botón "Ver/Ocultar" mide 44 px (`min-h-11 h-11`). | `Switch.tsx`, `TextField.tsx` |
+| Cabecera más ancha que el contenido en escritorio | Resuelto: La cabecera usa `max-w-xl`, alineándose con la columna principal en todas las resoluciones. | `app/AppLayout.tsx` |
+| Foco del diálogo | Resuelto: La trampa de foco ahora atrapa todos los elementos interactivos (`button, [href], input, select, textarea`) y cierra con clic en el fondo. | `shared/ui/ConfirmDialog.tsx` |
 
 ### Lo pedido y no implementado
 

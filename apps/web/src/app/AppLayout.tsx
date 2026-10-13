@@ -16,7 +16,7 @@ export function AppLayout() {
       >
         Saltar al contenido
       </a>
-      <header className="mx-auto flex max-w-xl items-center justify-between px-4 pt-4 sm:max-w-2xl">
+      <header className="mx-auto flex max-w-xl items-center justify-between px-4 pt-4">
         <Brand to={withNav ? "/inicio" : "/"} />
         {me.data === null && (
           <Link to="/iniciar-sesion" className="min-h-11 rounded-lg px-3 py-2.5 font-bold text-primary-text hover:bg-surface-2">

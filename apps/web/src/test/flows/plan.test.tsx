@@ -21,10 +21,10 @@ describe("HU 5 — plan semanal", () => {
     vi.useRealTimers();
   });
 
-  it("sin plan genera automáticamente UNA vez y sondea hasta ready sin bloquear", async () => {
+  it("tras el diagnóstico genera automáticamente UNA vez y sondea hasta ready sin bloquear", async () => {
     sequence(plan({ status: "none" }), plan({ status: "generating" }), plan({ status: "generating" }), plan());
     server.use(http.post(`${API}/plan/generate`, () => ok({ plan_id: "p1", status: "generating" }, 202)));
-    renderRoute("/inicio", { me: ME, advanceTimers: vi.advanceTimersByTime });
+    renderRoute({ pathname: "/inicio", state: { fromDiagnostic: true } }, { me: ME, advanceTimers: vi.advanceTimersByTime });
 
     expect(await screen.findByRole("heading", { name: "Estamos armando tu plan…" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Navegación principal" })).toBeInTheDocument(); // la app sigue usable
@@ -38,6 +38,18 @@ describe("HU 5 — plan semanal", () => {
     const gets = sent("GET", "/plan/current").length;
     await advance(POLL_INTERVAL_MS * 3);
     expect(sent("GET", "/plan/current")).toHaveLength(gets); // con el plan listo deja de sondear
+  });
+
+  it("sin plan en una semana nueva muestra el botón Generar mi plan y no autogenera", async () => {
+    sequence(plan({ status: "none" }));
+    server.use(http.post(`${API}/plan/generate`, () => ok({ plan_id: "p1", status: "generating" }, 202)));
+    const { user } = renderRoute("/inicio", { me: ME, advanceTimers: vi.advanceTimersByTime });
+
+    expect(await screen.findByText("Aún no tienes plan para esta semana")).toBeInTheDocument();
+    expect(sent("POST", "/plan/generate")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Generar mi plan" }));
+    expect(sent("POST", "/plan/generate")).toHaveLength(1);
   });
 
   it("failed NO reintenta solo; Reintentar hace el POST", async () => {

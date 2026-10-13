@@ -70,6 +70,55 @@ export interface GeneratePlanResponse {
   status: "generating";
 }
 
+export interface ExerciseGuide {
+  steps: string[];
+  disclaimer: string;
+}
+
+export interface PlanExercise {
+  id: string;
+  position: number;
+  name: string;
+  sets: number;
+  reps: number | null;
+  work_seconds: number | null;
+  rest_seconds: number;
+  guide: ExerciseGuide;
+}
+
+export interface PlanDayDetail {
+  date: string;
+  weekday: number;
+  status: PlanDayStatus;
+  title: string | null;
+  estimated_minutes: number | null;
+  exercises: PlanExercise[];
+}
+
+export interface NextTrainingDay {
+  date: string;
+  weekday: number;
+  title: string | null;
+  planned: boolean;
+}
+
+export interface TodayPlan {
+  date: string;
+  is_weekend: boolean;
+  plan_status: PlanStatus;
+  regenerating: boolean;
+  failure: { code: PlanFailureCode | string } | null;
+  day: PlanDayDetail | null;
+  next_training_day: NextTrainingDay | null;
+}
+
+export interface ExerciseGuideResponse {
+  exercise_id: string;
+  name: string;
+  steps: string[];
+  disclaimer: string;
+}
+
 export interface RankingItem {
   position: number;
   nickname: string;

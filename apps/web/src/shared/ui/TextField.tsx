@@ -55,7 +55,7 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
         </p>
       )}
       {error && (
-        <p id={errorId} className="text-sm font-bold text-danger">
+        <p id={errorId} role="alert" className="text-sm font-bold text-danger">
           {error}
         </p>
       )}
@@ -89,7 +89,7 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(fu
         <button
           type="button"
           onClick={() => setVisible((v) => !v)}
-          className="min-h-10 rounded-lg px-3 text-sm font-bold text-primary-text hover:bg-surface-2"
+          className="min-h-11 h-11 flex items-center rounded-lg px-3 text-sm font-bold text-primary-text hover:bg-surface-2 cursor-pointer"
           aria-pressed={visible}
           aria-label={visible ? "Ocultar contraseña" : "Mostrar contraseña"}
         >

@@ -17,16 +17,27 @@ async def test_ac_5_9_la_api_no_ofrece_ninguna_operacion_para_modificar_el_plan(
     client: httpx.AsyncClient, plan_api, manual_scheduler, student_with_profile: Student
 ) -> None:
     paths = {p: sorted(ops) for p, ops in app.openapi()["paths"].items() if p.startswith("/api/v1/plan")}
-    assert paths == {GENERATE_URL: ["post"], CURRENT_URL: ["get"]}
+    assert paths == {
+        GENERATE_URL: ["post"],
+        CURRENT_URL: ["get"],
+        "/api/v1/plan/today": ["get"],
+        "/api/v1/plan/days/{date}": ["get"],
+        "/api/v1/plan/exercises/{exercise_id}/guide": ["get"],
+    }
 
     await plan_api.generate(student_with_profile.token)
     await manual_scheduler.run_all()
     headers = with_session(student_with_profile.token)
-    for url in (GENERATE_URL, CURRENT_URL):
+    for url in (
+        GENERATE_URL,
+        CURRENT_URL,
+        "/api/v1/plan/today",
+        "/api/v1/plan/days/2026-10-12",
+    ):
         for method in ("PUT", "PATCH", "DELETE"):
             response = await client.request(method, url, headers=headers, json={"days": []})
             assert response.status_code == 405, (method, url)
-    for url in ("/api/v1/plan", "/api/v1/plan/days/2026-10-12", "/api/v1/plan/exercises/1"):
+    for url in ("/api/v1/plan", "/api/v1/plan/exercises/1"):
         for method in ("GET", "PUT", "PATCH", "DELETE", "POST"):
             assert (await client.request(method, url, headers=headers)).status_code in (404, 405)
     assert (await plan_api.current(student_with_profile.token)).json()["status"] == "ready"

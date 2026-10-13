@@ -382,6 +382,7 @@ def complete_diagnostic(client: httpx.AsyncClient) -> Callable[..., Any]:
 
 GENERATE_URL = "/api/v1/plan/generate"
 CURRENT_URL = "/api/v1/plan/current"
+TODAY_URL = "/api/v1/plan/today"
 
 
 @pytest.fixture
@@ -400,7 +401,7 @@ async def student_with_profile(student: Student, complete_diagnostic: Callable[.
 
 @pytest.fixture
 def plan_api(client: httpx.AsyncClient) -> Callable[..., Any]:
-    """plan_api.generate(token) / plan_api.current(token)."""
+    """plan_api.generate / current / today / day / guide."""
 
     class _PlanApi:
         async def generate(self, token: str, **kwargs: Any) -> httpx.Response:
@@ -408,6 +409,15 @@ def plan_api(client: httpx.AsyncClient) -> Callable[..., Any]:
 
         async def current(self, token: str) -> httpx.Response:
             return await client.get(CURRENT_URL, headers=with_session(token))
+
+        async def today(self, token: str) -> httpx.Response:
+            return await client.get(TODAY_URL, headers=with_session(token))
+
+        async def day(self, token: str, date: str) -> httpx.Response:
+            return await client.get(f"/api/v1/plan/days/{date}", headers=with_session(token))
+
+        async def guide(self, token: str, exercise_id: str | uuid.UUID) -> httpx.Response:
+            return await client.get(f"/api/v1/plan/exercises/{exercise_id}/guide", headers=with_session(token))
 
     return _PlanApi()
 

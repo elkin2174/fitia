@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useLocation } from "react-router";
 import { Page } from "../../app/AppLayout";
 import { isApiError } from "../../shared/api/client";
 import type { CurrentPlan } from "../../shared/api/types";
@@ -10,31 +11,24 @@ import { Banner } from "../../shared/ui/Banner";
 import { Button } from "../../shared/ui/Button";
 import { EmptyState, ErrorState, PageSkeleton } from "../../shared/ui/Feedback";
 import { planApi, planKey } from "./api";
+import { GeneratingPanel } from "./GeneratingPanel";
+import {
+  POLL_INTERVAL_MS,
+  SLOW_GENERATION_MS,
+  failureText,
+  usePlanGeneration,
+  useSlowFlag,
+} from "./usePlanGeneration";
 import { WeekLanes } from "./WeekLanes";
 
-export const POLL_INTERVAL_MS = 3000;
-export const SLOW_GENERATION_MS = 60_000;
-
-const FAILURE_MESSAGES: Record<string, string> = {
-  GENERATION_TIMEOUT: "La generación tardó más de lo esperado.",
-  AI_UNAVAILABLE: "El servicio de planes no está disponible ahora.",
-  AI_INVALID_OUTPUT: "No pudimos armar un plan válido.",
-  STALE: "La generación se interrumpió.",
-};
-const failureText = (code: string) => FAILURE_MESSAGES[code] ?? "No pudimos armar tu plan.";
-
-const ROTATING = [
-  "Revisando tu objetivo y tu nivel…",
-  "Ajustando cada sesión a tus minutos disponibles…",
-  "Eligiendo ejercicios según tu acceso a máquinas…",
-  "Escribiendo una explicación breve para cada ejercicio…",
-];
+export { POLL_INTERVAL_MS, SLOW_GENERATION_MS };
 
 const isBusy = (plan: CurrentPlan | undefined) => Boolean(plan && (plan.status === "generating" || plan.regenerating));
 
 export function HomePage() {
   const me = useMe();
-  const queryClient = useQueryClient();
+  const location = useLocation();
+  const { generate } = usePlanGeneration();
   const plan = useQuery({
     queryKey: planKey,
     queryFn: planApi.current,
@@ -43,21 +37,19 @@ export function HomePage() {
     staleTime: 0,
   });
 
-  const generate = useMutation({
-    mutationFn: planApi.generate,
-    onSettled: (_data, error) => {
-      if (!error || isApiError(error, "PLAN_UP_TO_DATE")) void queryClient.invalidateQueries({ queryKey: planKey });
-    },
-  });
-
-  // "none" → se genera automáticamente una sola vez. "failed" NUNCA se reintenta solo.
+  // Decisión 8: la generación automática se mantiene SOLO cuando el usuario llega justo después del diagnóstico.
+  // En cualquier otro caso (none en semana nueva), muestra EmptyState con "Generar mi plan".
   const autoStarted = useRef(false);
+  const fromDiagnostic = Boolean(
+    (location.state as { fromDiagnostic?: boolean } | null)?.fromDiagnostic
+  );
+
   useEffect(() => {
-    if (plan.data?.status === "none" && !autoStarted.current) {
+    if (plan.data?.status === "none" && !autoStarted.current && fromDiagnostic) {
       autoStarted.current = true;
       generate.mutate();
     }
-  }, [plan.data?.status, generate]);
+  }, [plan.data?.status, fromDiagnostic, generate]);
 
   const busy = isBusy(plan.data);
   const slow = useSlowFlag(busy, SLOW_GENERATION_MS);
@@ -96,14 +88,19 @@ export function HomePage() {
       <div className="mt-6 flex flex-col gap-4">
         <GenerateFeedback error={generate.error} />
 
-        {(data.status === "generating" || (data.status === "none" && !generate.isError)) && (
-          <GeneratingPanel slow={slow.reached} onKeepWaiting={slow.reset} onRetry={() => generate.mutate()} retrying={generate.isPending} />
+        {(data.status === "generating" || (data.status === "none" && generate.isPending)) && (
+          <GeneratingPanel
+            slow={slow.reached}
+            onKeepWaiting={slow.reset}
+            onRetry={() => generate.mutate()}
+            retrying={generate.isPending}
+          />
         )}
 
-        {data.status === "none" && generate.isError && (
+        {data.status === "none" && !generate.isPending && (
           <EmptyState
             title="Aún no tienes plan para esta semana"
-            action={<Button onClick={() => generate.mutate()} loading={generate.isPending}>Generar mi plan</Button>}
+            action={<Button onClick={() => generate.mutate()} loading={generate.isPending} loadingText="Generando…">Generar mi plan</Button>}
           >
             Tus respuestas del diagnóstico ya están guardadas.
           </EmptyState>
@@ -196,47 +193,3 @@ function GenerateFeedback({ error }: { error: Error | null }) {
   );
 }
 
-function GeneratingPanel({ slow, onKeepWaiting, onRetry, retrying }: { slow: boolean; onKeepWaiting: () => void; onRetry: () => void; retrying: boolean }) {
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    const timer = window.setInterval(() => setIndex((i) => (i + 1) % ROTATING.length), 4000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return (
-    <section className="rounded-[var(--radius-card)] border-2 border-line bg-surface p-6" aria-labelledby="generating-title">
-      <h2 id="generating-title" className="text-2xl font-bold">
-        Estamos armando tu plan…
-      </h2>
-      <p role="status" className="sr-only">Estamos armando tu plan. Te avisaremos cuando esté listo.</p>
-      <div className="relative mt-5 h-3 overflow-hidden rounded-full bg-surface-2" aria-hidden="true">
-        <div className="animate-runner absolute inset-y-0 w-1/4 rounded-full bg-primary" />
-      </div>
-      <p className="mt-4 min-h-12 text-muted" aria-hidden="true">
-        {ROTATING[index]}
-      </p>
-      <p className="text-sm text-muted">Puedes seguir usando la app; te mostramos el plan apenas esté listo.</p>
-      {slow && (
-        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-5" role="status">
-          <p className="font-bold">Está tardando más de lo normal.</p>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={onKeepWaiting}>Seguir esperando</Button>
-            <Button onClick={onRetry} loading={retrying} loadingText="Reintentando…">Reintentar</Button>
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** Se activa cuando una espera supera `ms`; `reset` vuelve a empezar la cuenta. */
-function useSlowFlag(active: boolean, ms: number) {
-  const [reached, setReached] = useState(false);
-  const [round, setRound] = useState(0);
-  useEffect(() => {
-    setReached(false);
-    if (!active) return;
-    const timer = window.setTimeout(() => setReached(true), ms);
-    return () => window.clearTimeout(timer);
-  }, [active, ms, round]);
-  return { reached: active && reached, reset: () => setRound((r) => r + 1) };
-}

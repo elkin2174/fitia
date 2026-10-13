@@ -79,7 +79,7 @@ export function OptionCards({ legend, hideLegend, options, value, onChange, erro
         })}
       </div>
       {error && (
-        <p id={`${id}-error`} className="text-sm font-bold text-danger">
+        <p id={`${id}-error`} role="alert" className="text-sm font-bold text-danger">
           {error}
         </p>
       )}

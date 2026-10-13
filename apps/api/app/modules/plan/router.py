@@ -1,3 +1,6 @@
+import uuid
+from datetime import date
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -8,11 +11,22 @@ from app.core.db import get_session, get_session_factory
 from app.core.rate_limit import RateLimiter, get_rate_limiter
 from app.modules.auth.dependencies import CurrentUser, require_complete_profile
 from app.modules.plan.runner import PlanGenerationJob, PlanJobScheduler, get_plan_scheduler
-from app.modules.plan.schemas import CurrentPlanResponse, GeneratePlanResponse, PlanDayOut, PlanFailure
+from app.modules.plan.schemas import (
+    CurrentPlanResponse,
+    ExerciseGuideDetailResponse,
+    ExerciseGuideOut,
+    GeneratePlanResponse,
+    NextTrainingDayOut,
+    PlanDayDetailOut,
+    PlanDayOut,
+    PlanExerciseOut,
+    PlanFailure,
+    TodayPlanResponse,
+)
 from app.modules.plan.service import PlanService
 from app.modules.profile.service import ProfileService
 
-# Solo dos operaciones: el plan es de solo lectura (AC-5-9 / NFR-22). No hay PUT, PATCH ni DELETE.
+# Solo lectura: no hay PUT, PATCH ni DELETE (AC-5-9, AC-10-4, AC-12-2 / NFR-22).
 router = APIRouter(prefix="/plan", tags=["Plan semanal"])
 
 
@@ -67,4 +81,96 @@ async def current(
             )
             for d in view.days
         ],
+    )
+
+
+@router.get("/today", response_model=TodayPlanResponse)
+async def today(
+    user: CurrentUser = Depends(require_complete_profile), service: PlanService = Depends(get_plan_service)
+) -> TodayPlanResponse:
+    view = await service.today(user.id)
+    day_out: PlanDayDetailOut | None = None
+    if view.day is not None:
+        day_out = PlanDayDetailOut(
+            date=view.day.date,
+            weekday=view.day.weekday,
+            status=view.day.status,
+            title=view.day.title,
+            estimated_minutes=view.day.estimated_minutes,
+            exercises=[
+                PlanExerciseOut(
+                    id=e.id,
+                    position=e.position,
+                    name=e.name,
+                    sets=e.sets,
+                    reps=e.reps,
+                    work_seconds=e.work_seconds,
+                    rest_seconds=e.rest_seconds,
+                    guide=ExerciseGuideOut(steps=e.steps, disclaimer=e.disclaimer),
+                )
+                for e in view.day.exercises
+            ],
+        )
+
+    next_day_out: NextTrainingDayOut | None = None
+    if view.next_training_day is not None:
+        next_day_out = NextTrainingDayOut(
+            date=view.next_training_day.date,
+            weekday=view.next_training_day.weekday,
+            title=view.next_training_day.title,
+            planned=view.next_training_day.planned,
+        )
+
+    return TodayPlanResponse(
+        date=view.date,
+        is_weekend=view.is_weekend,
+        plan_status=view.plan_status,
+        regenerating=view.regenerating,
+        failure=PlanFailure(code=view.failure_code) if view.failure_code else None,
+        day=day_out,
+        next_training_day=next_day_out,
+    )
+
+
+@router.get("/days/{date}", response_model=PlanDayDetailOut)
+async def get_day(
+    date: date,
+    user: CurrentUser = Depends(require_complete_profile),
+    service: PlanService = Depends(get_plan_service),
+) -> PlanDayDetailOut:
+    view = await service.get_day(user.id, date)
+    return PlanDayDetailOut(
+        date=view.date,
+        weekday=view.weekday,
+        status=view.status,
+        title=view.title,
+        estimated_minutes=view.estimated_minutes,
+        exercises=[
+            PlanExerciseOut(
+                id=e.id,
+                position=e.position,
+                name=e.name,
+                sets=e.sets,
+                reps=e.reps,
+                work_seconds=e.work_seconds,
+                rest_seconds=e.rest_seconds,
+                guide=ExerciseGuideOut(steps=e.steps, disclaimer=e.disclaimer),
+            )
+            for e in view.exercises
+        ],
+    )
+
+
+@router.get("/exercises/{exercise_id}/guide", response_model=ExerciseGuideDetailResponse)
+async def get_exercise_guide(
+    exercise_id: uuid.UUID,
+    user: CurrentUser = Depends(require_complete_profile),
+    service: PlanService = Depends(get_plan_service),
+) -> ExerciseGuideDetailResponse:
+    view = await service.get_exercise_guide(user.id, exercise_id)
+    return ExerciseGuideDetailResponse(
+        exercise_id=view.exercise_id,
+        name=view.name,
+        steps=view.steps,
+        disclaimer=view.disclaimer,
     )

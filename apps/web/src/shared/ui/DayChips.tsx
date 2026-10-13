@@ -48,7 +48,7 @@ export function DayChips({ legend, hideLegend, options, value, onChange, error }
         })}
       </div>
       {error && (
-        <p id={`${id}-error`} className="text-sm font-bold text-danger">
+        <p id={`${id}-error`} role="alert" className="text-sm font-bold text-danger">
           {error}
         </p>
       )}

@@ -32,7 +32,9 @@ export function Switch({ label, description, checked, onChange, disabled }: Swit
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cx(
-          "relative mt-0.5 inline-flex h-8 w-14 shrink-0 items-center rounded-full border-2 transition-colors disabled:opacity-55",
+          "relative mt-0.5 inline-flex h-8 w-14 shrink-0 items-center rounded-full border-2 transition-colors disabled:opacity-55 cursor-pointer",
+          "before:absolute before:-inset-2 before:content-['']",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2",
           checked ? "border-rest bg-rest" : "border-line bg-surface-2",
         )}
       >

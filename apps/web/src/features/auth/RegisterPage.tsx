@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { z } from "zod";
@@ -44,6 +45,11 @@ export function RegisterPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const programs = useQuery({ queryKey: ["programs"], queryFn: authApi.programs, staleTime: Infinity });
+
+  const programItems = useMemo(
+    () => (programs.data ?? []).map((p) => ({ value: p.code, label: p.name })),
+    [programs.data],
+  );
 
   const form = useForm<FormInput, unknown, FormOutput>({
     resolver: zodResolver(schema),
@@ -117,6 +123,7 @@ export function RegisterPage() {
           type="email"
           inputMode="email"
           autoComplete="email"
+          spellCheck={false}
           placeholder="nombre.apellido@correounivalle.edu.co"
           hint="Usa tu correo @correounivalle.edu.co"
           error={errors.email?.message}
@@ -137,7 +144,7 @@ export function RegisterPage() {
             <SearchSelect
               label="Programa académico"
               placeholder="Busca tu programa"
-              items={(programs.data ?? []).map((p) => ({ value: p.code, label: p.name }))}
+              items={programItems}
               value={field.value || null}
               onChange={(value) => field.onChange(value ?? "")}
               loading={programs.isPending}

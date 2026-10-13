@@ -21,6 +21,8 @@ const RegisterPage = lazyPage(() => import("../features/auth/RegisterPage"), "Re
 const VerifyEmailPage = lazyPage(() => import("../features/auth/VerifyEmailPage"), "VerifyEmailPage");
 const DiagnosticPage = lazyPage(() => import("../features/onboarding/DiagnosticPage"), "DiagnosticPage");
 const HomePage = lazyPage(() => import("../features/plan/HomePage"), "HomePage");
+const TodayPage = lazyPage(() => import("../features/plan/TodayPage"), "TodayPage");
+const PlanDayPage = lazyPage(() => import("../features/plan/PlanDayPage"), "PlanDayPage");
 const DeleteAccountPage = lazyPage(() => import("../features/profile/DeleteAccountPage"), "DeleteAccountPage");
 const HistoryPage = lazyPage(() => import("../features/profile/HistoryPage"), "HistoryPage");
 const ProfilePage = lazyPage(() => import("../features/profile/ProfilePage"), "ProfilePage");
@@ -54,6 +56,8 @@ export const routes: RouteObject[] = [
         element: <RequireProfile />,
         children: [
           { path: "/inicio", element: <HomePage /> },
+          { path: "/hoy", element: <TodayPage /> },
+          { path: "/plan/dia/:fecha", element: <PlanDayPage /> },
           { path: "/perfil", element: <ProfilePage /> },
           { path: "/perfil/historial", element: <HistoryPage /> },
         ],

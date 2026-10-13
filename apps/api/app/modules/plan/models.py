@@ -36,6 +36,11 @@ FAILURE_CODES: tuple[str, ...] = (
     FAILURE_STALE,
 )
 
+EXERCISE_DISCLAIMER: str = (
+    "Esta guía es orientativa y no reemplaza la indicación de un profesional del deporte o de la salud. "
+    "Si sientes dolor, detente."
+)
+
 
 class WeeklyPlan(Base):
     __tablename__ = "weekly_plans"

@@ -76,6 +76,7 @@ export function LoginPage() {
           type="email"
           inputMode="email"
           autoComplete="username"
+          spellCheck={false}
           placeholder="nombre.apellido@correounivalle.edu.co"
           error={formState.errors.email?.message}
           {...register("email")}

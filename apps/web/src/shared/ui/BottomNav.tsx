@@ -3,6 +3,7 @@ import { cx } from "../lib/cx";
 
 const items = [
   { to: "/inicio", label: "Inicio", icon: "M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z" },
+  { to: "/hoy", label: "Hoy", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" },
   { to: "/ranking", label: "Ranking", icon: "M5 21V11h4v10M10 21V4h4v17M15 21v-7h4v7" },
   { to: "/perfil", label: "Perfil", icon: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-8 9a8 8 0 0 1 16 0" },
 ];
@@ -13,14 +14,14 @@ export function BottomNav() {
       aria-label="Navegación principal"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
     >
-      <ul className="mx-auto grid max-w-xl grid-cols-3">
+      <ul className="mx-auto grid max-w-xl grid-cols-4">
         {items.map((item) => (
           <li key={item.to}>
             <NavLink
               to={item.to}
               className={({ isActive }) =>
                 cx(
-                  "flex min-h-16 flex-col items-center justify-center gap-1 text-sm font-bold",
+                  "flex min-h-16 flex-col items-center justify-center gap-1 text-xs sm:text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 rounded-lg",
                   isActive ? "text-primary-text" : "text-muted hover:text-ink",
                 )
               }

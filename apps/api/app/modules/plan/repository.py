@@ -108,3 +108,32 @@ class PlanRepository:
     async def add_exercise(self, exercise: PlanExercise) -> None:
         self._session.add(exercise)
         await self._session.flush()
+
+    async def get_day_with_exercises(
+        self, plan_id: uuid.UUID, plan_date: date
+    ) -> tuple[PlanDay | None, list[PlanExercise]]:
+        day = await self._session.scalar(
+            select(PlanDay).where(PlanDay.plan_id == plan_id, PlanDay.plan_date == plan_date)
+        )
+        if day is None:
+            return None, []
+        result = await self._session.scalars(
+            select(PlanExercise)
+            .where(PlanExercise.plan_id == plan_id, PlanExercise.plan_date == plan_date)
+            .order_by(PlanExercise.position)
+        )
+        return day, list(result.all())
+
+    async def get_exercise_guide(
+        self, user_id: uuid.UUID, week_start: date, exercise_id: uuid.UUID
+    ) -> PlanExercise | None:
+        return await self._session.scalar(
+            select(PlanExercise)
+            .join(WeeklyPlan, WeeklyPlan.id == PlanExercise.plan_id)
+            .where(
+                PlanExercise.id == exercise_id,
+                WeeklyPlan.user_id == user_id,
+                WeeklyPlan.week_start == week_start,
+                WeeklyPlan.status == STATUS_READY,
+            )
+        )
