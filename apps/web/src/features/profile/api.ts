@@ -1,42 +1,12 @@
-import type { DiagnosticProfile, ProfileResponse, UpdateProfileResponse } from "./types";
+import { api } from "../../shared/api/client";
+import type { PhysicalHistoryResponse, ProfileResponse, ProfileUpdate, UpdateProfileResponse } from "./types";
 
-const BASE_URL = "/api/v1/profile";
+export const profileKey = ["profile"] as const;
+export const measurementsKey = ["measurements"] as const;
 
-export async function getProfile(): Promise<ProfileResponse> {
-  const response = await fetch(BASE_URL, {
-    method: "GET",
-    headers: {
-      "Accept": "application/json",
-    },
-    credentials: "include", // incluye la cookie fitia_session
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || `Error al consultar el perfil (${response.status})`);
-  }
-
-  return response.json();
-}
-
-export async function updateProfile(
-  payload: Partial<DiagnosticProfile>
-): Promise<UpdateProfileResponse> {
-  const response = await fetch(BASE_URL, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "X-Requested-With": "fitia", // Cabecera anti-CSRF requerida por el backend
-    },
-    credentials: "include",
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || `Error al actualizar el perfil (${response.status})`);
-  }
-
-  return response.json();
-}
+export const profileApi = {
+  get: (options?: { silentAuth?: boolean }) => api.get<ProfileResponse>("/profile", options),
+  /** Solo los campos que cambiaron; nunca points, level, ranking_position ni physical_updated_at. */
+  update: (changes: ProfileUpdate) => api.patch<UpdateProfileResponse>("/profile", changes),
+  measurements: () => api.get<PhysicalHistoryResponse>("/profile/measurements"),
+};

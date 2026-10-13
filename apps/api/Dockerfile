@@ -19,4 +19,6 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && python -m seeds.load_academic_programs && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+# Migra y carga los programas (idempotente) antes de arrancar. `exec` deja a uvicorn como PID 1 para que
+# `docker compose stop` lo detenga de inmediato. --reload es de desarrollo (el compose monta el código).
+CMD ["sh", "-c", "alembic upgrade head && python -m seeds.load_academic_programs && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --proxy-headers"]
