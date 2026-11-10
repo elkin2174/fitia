@@ -10,3 +10,7 @@ services:
         value: 3.11.9
       - key: TZ
         value: America/Bogota
+      - key: GEMINI_TTS_MODEL
+        value: gemini-3.8-flash-tts
+      - key: GEMINI_TTS_VOICE
+        value: Aoede

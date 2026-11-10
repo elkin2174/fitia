@@ -23,6 +23,8 @@ async def test_ac_5_9_la_api_no_ofrece_ninguna_operacion_para_modificar_el_plan(
         "/api/v1/plan/today": ["get"],
         "/api/v1/plan/days/{date}": ["get"],
         "/api/v1/plan/exercises/{exercise_id}/guide": ["get"],
+        "/api/v1/plan/exercises/{exercise_id}/audio": ["get"],
+        "/api/v1/plan/audio/cues/{name}": ["get"],
     }
 
     await plan_api.generate(student_with_profile.token)

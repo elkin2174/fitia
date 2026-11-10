@@ -60,3 +60,20 @@ async def test_nfr_11_mutaciones_publicas_tambien_son_no_store(client: httpx.Asy
 
     assert response.status_code == 422
     assert response.headers["Cache-Control"] == "no-store"
+
+
+async def test_nfr_11_audio_permite_private_y_errores_mantienen_no_store(
+    client: httpx.AsyncClient,
+    login,
+    verified_user: SeededUser,
+) -> None:
+    # En endpoints de audio, las respuestas de error continúan con no-store
+    dummy_id = "00000000-0000-0000-0000-000000000000"
+    unauth = await client.get(f"/api/v1/plan/exercises/{dummy_id}/audio")
+    assert unauth.status_code == 401
+    assert unauth.headers["Cache-Control"] == "no-store"
+
+    headers = with_session(session_token(await login(verified_user.email)))
+    res_err = await client.get(f"/api/v1/plan/exercises/{dummy_id}/audio", headers=headers)
+    assert res_err.status_code == 403
+    assert res_err.headers["Cache-Control"] == "no-store"

@@ -27,16 +27,18 @@ from app.modules.auth.models import User
 from app.modules.onboarding.status import get_onboarding_status
 from app.main import app
 from seeds.load_academic_programs import load_programs, read_programs
+from app.ai.adapters.fake_speech import FakeSpeechAdapter
 from app.ai.adapters.fake_text import FakeTextAdapter
 from app.ai.call_log import DbCallRecorder
 from app.ai.gateway import AIGateway, get_ai_gateway
 from app.ai.resilience import CircuitBreaker
+from app.ai.use_cases.exercise_audio import get_audio_cache
 from app.modules.plan.runner import get_plan_scheduler
 from tests.fakes import FakeMailer, FakeMonotonic, FakeOnboardingStatus, ManualScheduler
 
 API_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/fitia_test"
+    "TEST_DATABASE_URL", "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/fitia_test"
 )
 CSRF_HEADERS = {"X-Requested-With": "fitia"}
 FRONTEND_URL = "https://fitia.test"
@@ -121,6 +123,12 @@ def fake_ai() -> FakeTextAdapter:
 
 
 @pytest.fixture
+def fake_speech() -> FakeSpeechAdapter:
+    """Adaptador falso de TTS para audio (con cola de comportamientos)."""
+    return FakeSpeechAdapter()
+
+
+@pytest.fixture
 def ai_time() -> FakeMonotonic:
     return FakeMonotonic()
 
@@ -129,6 +137,7 @@ def ai_time() -> FakeMonotonic:
 def ai_gateway(
     settings: Settings,
     fake_ai: FakeTextAdapter,
+    fake_speech: FakeSpeechAdapter,
     sessionmaker: async_sessionmaker[AsyncSession],
     clock: FrozenClock,
     ai_time: FakeMonotonic,
@@ -136,6 +145,7 @@ def ai_gateway(
     return AIGateway(
         settings=settings,
         generator=fake_ai,
+        synthesizer=fake_speech,
         breaker=CircuitBreaker(
             settings.AI_BREAKER_FAILURES, settings.AI_BREAKER_WINDOW_SECONDS, settings.AI_BREAKER_OPEN_SECONDS, ai_time
         ),
@@ -154,6 +164,7 @@ async def client(
     settings: Settings,
     ai_gateway: AIGateway,
 ) -> AsyncIterator[httpx.AsyncClient]:
+    get_audio_cache().clear()
     async def _session() -> AsyncIterator[AsyncSession]:
         async with sessionmaker() as session:
             yield session
@@ -418,6 +429,12 @@ def plan_api(client: httpx.AsyncClient) -> Callable[..., Any]:
 
         async def guide(self, token: str, exercise_id: str | uuid.UUID) -> httpx.Response:
             return await client.get(f"/api/v1/plan/exercises/{exercise_id}/guide", headers=with_session(token))
+
+        async def audio(self, token: str, exercise_id: str | uuid.UUID) -> httpx.Response:
+            return await client.get(f"/api/v1/plan/exercises/{exercise_id}/audio", headers=with_session(token))
+
+        async def cue_audio(self, token: str, cue_name: str) -> httpx.Response:
+            return await client.get(f"/api/v1/plan/audio/cues/{cue_name}", headers=with_session(token))
 
     return _PlanApi()
 

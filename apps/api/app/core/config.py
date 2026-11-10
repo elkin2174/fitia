@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     RATE_LIMIT_PLAN_GENERATE_PER_USER: int = 6
     RATE_LIMIT_PLAN_GENERATE_WINDOW_MINUTES: int = 60
 
+    # Voz / Síntesis TTS (MVP 2 - HU 1 y HU 2)
+    GEMINI_TTS_MODEL: str = "gemini-3.8-flash-tts"
+    GEMINI_TTS_VOICE: str = "Aoede"
+    RATE_LIMIT_EXERCISE_AUDIO_PER_USER: int = 30
+    RATE_LIMIT_EXERCISE_AUDIO_WINDOW_MINUTES: int = 15
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
