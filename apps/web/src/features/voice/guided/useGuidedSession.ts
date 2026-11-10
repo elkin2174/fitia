@@ -8,10 +8,17 @@ import {
   type BrowserFallback,
 } from "../BrowserFallback";
 import {
+  playCueWithFallback,
+  preloadCues,
+  speakWithBrowser,
+} from "../cues";
+import {
   createInitialGuidedState,
   guidedMachine,
   type GuidedExerciseConfig,
 } from "./guidedMachine";
+
+export { speakWithBrowser } from "../cues";
 
 export interface UseGuidedSessionOptions {
   exercises: PlanExercise[];
@@ -48,39 +55,6 @@ export async function preloadExerciseAudios(
   await Promise.allSettled(workers);
 }
 
-function speakWithBrowser(
-  text: string,
-  fallback: BrowserFallback = globalBrowserFallback,
-): Promise<void> {
-  return new Promise((resolve) => {
-    if (
-      typeof window === "undefined" ||
-      !("speechSynthesis" in window) ||
-      !window.speechSynthesis ||
-      typeof SpeechSynthesisUtterance === "undefined"
-    ) {
-      resolve();
-      return;
-    }
-    try {
-      const utterance = new SpeechSynthesisUtterance(text);
-      const voice = fallback.getSelectedVoice();
-      if (voice) {
-        utterance.voice = voice;
-        utterance.lang = voice.lang;
-      } else {
-        utterance.lang = "es-ES";
-      }
-      utterance.rate = fallback.getSnapshot().rate ?? 1;
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      resolve();
-    }
-  });
-}
-
 export function useGuidedSession({
   exercises,
   onRestTick,
@@ -111,6 +85,9 @@ export function useGuidedSession({
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const unsubscribeEndedRef = useRef<(() => void) | null>(null);
   const preloadAbortRef = useRef<AbortController | null>(null);
+  const restAbortRef = useRef<AbortController | null>(null);
+  const pausedRemainingRef = useRef<number | null>(null);
+  const targetEndTimeRef = useRef<number | null>(null);
 
   const currentExercise = exercises[state.exerciseIndex] ?? null;
 
@@ -123,6 +100,12 @@ export function useGuidedSession({
 
   const stopActiveSpeechAndAudio = useCallback(() => {
     sessionGenRef.current++;
+    pausedRemainingRef.current = null;
+    targetEndTimeRef.current = null;
+    if (restAbortRef.current) {
+      restAbortRef.current.abort();
+      restAbortRef.current = null;
+    }
     clearTimer();
     if (unsubscribeEndedRef.current) {
       unsubscribeEndedRef.current();
@@ -140,18 +123,21 @@ export function useGuidedSession({
     setIsLoadingAudio(false);
   }, [clearTimer, fallback, player]);
 
-  // Precarga con concurrencia máxima de 2 sin bloquear la interfaz (AC-7-2)
+  // Precarga con concurrencia máxima de 2 sin bloquear la interfaz (AC-7-2, AC-8-2)
   useEffect(() => {
     if (exercises.length === 0) return;
     const controller = new AbortController();
     preloadAbortRef.current = controller;
 
-    preloadExerciseAudios(
-      exercises.map((e) => e.id),
-      player,
-      2,
-      controller.signal,
-    ).catch(() => {});
+    Promise.allSettled([
+      preloadExerciseAudios(
+        exercises.map((e) => e.id),
+        player,
+        2,
+        controller.signal,
+      ),
+      preloadCues(player, controller.signal),
+    ]).catch(() => {});
 
     return () => {
       controller.abort();
@@ -261,7 +247,7 @@ export function useGuidedSession({
     };
   }, [currentExercise, fallback, player, state.announcementKey, state.currentSet, state.exerciseIndex, state.status, state.totalSets]);
 
-  // Manejo del estado working (ejercicios por tiempo o repeticiones)
+  // Manejo del estado working (ejercicios por tiempo o repeticiones con cálculo basado en timestamp)
   useEffect(() => {
     if (state.status !== "working" || !currentExercise) {
       return;
@@ -270,17 +256,22 @@ export function useGuidedSession({
     clearTimer();
 
     if (currentExercise.work_seconds && currentExercise.work_seconds > 0) {
-      setTimerSeconds(currentExercise.work_seconds);
+      const initialWork = pausedRemainingRef.current !== null
+        ? pausedRemainingRef.current
+        : currentExercise.work_seconds;
+      pausedRemainingRef.current = null;
+
+      setTimerSeconds(initialWork);
+      targetEndTimeRef.current = Date.now() + initialWork * 1000;
+
       timerIntervalRef.current = setInterval(() => {
-        setTimerSeconds((prev) => {
-          if (prev === null || prev <= 1) {
-            clearTimer();
-            dispatch({ type: "timerEnded" });
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+        const remaining = Math.max(0, Math.ceil((targetEndTimeRef.current! - Date.now()) / 1000));
+        setTimerSeconds(remaining);
+        if (remaining <= 0) {
+          clearTimer();
+          dispatch({ type: "timerEnded" });
+        }
+      }, 250);
     } else {
       setTimerSeconds(null);
     }
@@ -290,50 +281,111 @@ export function useGuidedSession({
     };
   }, [clearTimer, currentExercise, state.currentSet, state.exerciseIndex, state.status]);
 
-  // Manejo del estado resting (cuenta regresiva con callbacks de extensión)
+  // Manejo del estado resting (cuenta regresiva con avisos de voz HU 8 / AC-8-1, AC-8-2, AC-8-4)
   useEffect(() => {
     if (state.status !== "resting" || !currentExercise) {
       return;
     }
 
     clearTimer();
-    const restTime = currentExercise.rest_seconds || 30;
-    setTimerSeconds(restTime);
-    onRestTick?.(restTime);
+    const restController = new AbortController();
+    restAbortRef.current = restController;
 
-    timerIntervalRef.current = setInterval(() => {
-      setTimerSeconds((prev) => {
-        if (prev === null || prev <= 1) {
-          clearTimer();
-          onRestTick?.(0);
-          onRestEnd?.();
-          dispatch({ type: "timerEnded" });
-          return 0;
+    const totalRest = currentExercise.rest_seconds || 30;
+    const isResuming = pausedRemainingRef.current !== null;
+    const initialRemaining = isResuming ? pausedRemainingRef.current! : totalRest;
+    pausedRemainingRef.current = null;
+
+    setTimerSeconds(initialRemaining);
+    onRestTick?.(initialRemaining);
+
+    targetEndTimeRef.current = Date.now() + initialRemaining * 1000;
+
+    let tenSecondsWarned = initialRemaining <= 10;
+    let isFinishedTriggered = false;
+
+    // Solo anunciar "descanso" al entrar inicialmente al descanso
+    if (!isResuming) {
+      playCueWithFallback("descanso", player, fallback, restController.signal).catch(() => {});
+    }
+
+    timerIntervalRef.current = setInterval(async () => {
+      if (restController.signal.aborted || isFinishedTriggered) {
+        return;
+      }
+
+      const currentRemaining = Math.max(
+        0,
+        Math.ceil((targetEndTimeRef.current! - Date.now()) / 1000),
+      );
+
+      setTimerSeconds(currentRemaining);
+      onRestTick?.(currentRemaining);
+
+      // Aviso a los 10 s (AC-8-2: no duplicar si el descanso original es <= 10 s)
+      if (!tenSecondsWarned && currentRemaining <= 10 && currentRemaining > 0) {
+        tenSecondsWarned = true;
+        playCueWithFallback("diez-segundos", player, fallback, restController.signal).catch(() => {});
+      }
+
+      // Al terminar el descanso (AC-8-2: esperar a que termine el cue antes del siguiente ejercicio)
+      if (currentRemaining <= 0) {
+        isFinishedTriggered = true;
+        clearTimer();
+        onRestTick?.(0);
+
+        try {
+          await playCueWithFallback("fin-descanso", player, fallback, restController.signal);
+        } catch {
+          // Ignorar fallo
         }
-        const next = prev - 1;
-        onRestTick?.(next);
-        return next;
-      });
-    }, 1000);
+
+        if (restController.signal.aborted) {
+          return;
+        }
+
+        onRestEnd?.();
+        dispatch({ type: "timerEnded" });
+      }
+    }, 250);
 
     return () => {
+      restController.abort();
+      if (restAbortRef.current === restController) {
+        restAbortRef.current = null;
+      }
       clearTimer();
     };
-  }, [clearTimer, currentExercise, onRestEnd, onRestTick, state.currentSet, state.exerciseIndex, state.status]);
+  }, [clearTimer, currentExercise, fallback, onRestEnd, onRestTick, player, state.currentSet, state.exerciseIndex, state.status]);
 
-  // Manejo del estado finished (AC-7-3)
+  // Manejo del estado finished (AC-7-3 y AC-8-2)
   useEffect(() => {
     if (state.status !== "finished") {
       return;
     }
     stopActiveSpeechAndAudio();
-    speakWithBrowser("Terminaste la rutina de hoy. ¡Buen trabajo!", fallback);
-  }, [fallback, state.status, stopActiveSpeechAndAudio]);
+    const controller = new AbortController();
+    playCueWithFallback("fin-rutina", player, fallback, controller.signal).catch(() => {});
+    return () => {
+      controller.abort();
+    };
+  }, [fallback, player, state.status, stopActiveSpeechAndAudio]);
 
   // Manejo del estado paused (AC-9-2)
   useEffect(() => {
     if (state.status === "paused") {
       clearTimer();
+      if (restAbortRef.current) {
+        if (targetEndTimeRef.current !== null) {
+          const rem = Math.max(0, Math.ceil((targetEndTimeRef.current - Date.now()) / 1000));
+          pausedRemainingRef.current = rem;
+        }
+        restAbortRef.current.abort();
+        restAbortRef.current = null;
+      } else if (targetEndTimeRef.current !== null) {
+        const rem = Math.max(0, Math.ceil((targetEndTimeRef.current - Date.now()) / 1000));
+        pausedRemainingRef.current = rem;
+      }
       player.pause();
       fallback.pause();
       if (typeof window !== "undefined" && "speechSynthesis" in window && window.speechSynthesis) {
@@ -389,9 +441,9 @@ export function useGuidedSession({
   }, [stopActiveSpeechAndAudio]);
 
   const done = useCallback(() => {
-    clearTimer();
+    stopActiveSpeechAndAudio();
     dispatch({ type: "done" });
-  }, [clearTimer]);
+  }, [stopActiveSpeechAndAudio]);
 
   return {
     state,

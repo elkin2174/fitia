@@ -1,4 +1,4 @@
-import { fetchExerciseAudio } from "./api";
+import { fetchCueAudio, fetchExerciseAudio } from "./api";
 import {
   DEFAULT_PLAYBACK_RATE,
   loadPlaybackRate,
@@ -320,7 +320,102 @@ export class AudioPlayer {
   public getCurrentExerciseId(): string | null {
     return this.currentExerciseId;
   }
+
+  public async playCue(name: string, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return;
+    const cueKey = `cue:${name}`;
+    if (this.currentExerciseId && this.currentExerciseId !== cueKey) {
+      this.stop();
+    }
+    if (this.activeAbortController) {
+      this.activeAbortController.abort();
+      this.activeAbortController = null;
+    }
+    this.currentExerciseId = cueKey;
+
+
+    let cached = this.cache.get(cueKey);
+    if (!cached) {
+      this.setState("loading", null);
+      const controller = new AbortController();
+      this.activeAbortController = controller;
+
+      try {
+        const blob = await fetchCueAudio(name, controller.signal);
+        const url = URL.createObjectURL(blob);
+        cached = { blob, url };
+
+        if (this.cache.size >= this.maxCacheSize) {
+          const firstKey = this.cache.keys().next().value;
+          if (firstKey) {
+            const evicted = this.cache.get(firstKey);
+            if (evicted) {
+              URL.revokeObjectURL(evicted.url);
+            }
+            this.cache.delete(firstKey);
+          }
+        }
+        this.cache.set(cueKey, cached);
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") {
+          return;
+        }
+        this.setState("error", err instanceof Error ? err : new Error(String(err)));
+        throw err;
+      } finally {
+        if (this.activeAbortController === controller) {
+          this.activeAbortController = null;
+        }
+      }
+    }
+
+    const audio = this.getAudio();
+    if (audio.src !== cached.url) {
+      audio.src = cached.url;
+      audio.load();
+    }
+    audio.playbackRate = this.rate;
+    try {
+      (audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+    } catch {}
+
+    try {
+      this.setState("playing", null);
+      await audio.play();
+    } catch (playErr) {
+      this.setState("error", playErr instanceof Error ? playErr : new Error("No se pudo iniciar la reproducción"));
+      throw playErr;
+    }
+  }
+
+  public async preloadCue(name: string, signal?: AbortSignal): Promise<void> {
+    const cueKey = `cue:${name}`;
+    if (this.cache.has(cueKey)) {
+      return;
+    }
+    try {
+      const blob = await fetchCueAudio(name, signal);
+      if (this.cache.has(cueKey)) {
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      if (this.cache.size >= this.maxCacheSize) {
+        const firstKey = this.cache.keys().next().value;
+        if (firstKey) {
+          const evicted = this.cache.get(firstKey);
+          if (evicted) {
+            URL.revokeObjectURL(evicted.url);
+          }
+          this.cache.delete(firstKey);
+        }
+      }
+      this.cache.set(cueKey, { blob, url });
+    } catch {
+      // Ignorar fallos de precarga
+    }
+  }
 }
+
 
 // Instancia única compartida en toda la app (garantiza AC-3-5)
 export const globalAudioPlayer = new AudioPlayer();

@@ -433,6 +433,9 @@ def plan_api(client: httpx.AsyncClient) -> Callable[..., Any]:
         async def audio(self, token: str, exercise_id: str | uuid.UUID) -> httpx.Response:
             return await client.get(f"/api/v1/plan/exercises/{exercise_id}/audio", headers=with_session(token))
 
+        async def cue_audio(self, token: str, cue_name: str) -> httpx.Response:
+            return await client.get(f"/api/v1/plan/audio/cues/{cue_name}", headers=with_session(token))
+
     return _PlanApi()
 
 

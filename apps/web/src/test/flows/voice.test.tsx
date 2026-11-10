@@ -1,4 +1,4 @@
-import { act, screen } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { globalAudioPlayer } from "../../features/voice/AudioPlayer";
 import { globalBrowserFallback } from "../../features/voice/BrowserFallback";
@@ -240,15 +240,18 @@ describe("HU 3, HU 4, HU 5 y HU 6 — Audio de ejercicios y respaldo con voz del
     expect(sent("GET", "/plan/exercises/e1/audio")).toHaveLength(1);
 
     // Cambiar al ejercicio 2 en la URL
-    router.navigate("/hoy?ejercicio=e2");
-    expect(await screen.findByRole("heading", { name: "Ejercicio 2" })).toBeInTheDocument();
+    await router.navigate("/hoy?ejercicio=e2");
+    expect(await screen.findByRole("heading", { name: "Ejercicio 2" }, { timeout: 4000 })).toBeInTheDocument();
 
     // Reproducir ejercicio 2
-    await user.click(screen.getByRole("button", { name: "Escuchar" }));
+    const listenBtn2 = await screen.findByRole("button", { name: "Escuchar" });
+    await user.click(listenBtn2);
 
     // El anterior se pausó y se ejecutó la reproducción del segundo
     expect(mockPause).toHaveBeenCalled();
-    expect(sent("GET", "/plan/exercises/e2/audio")).toHaveLength(1);
+    await waitFor(() => {
+      expect(sent("GET", "/plan/exercises/e2/audio")).toHaveLength(1);
+    });
     expect(globalAudioPlayer.getCurrentExerciseId()).toBe("e2");
   });
 

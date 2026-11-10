@@ -57,3 +57,31 @@ export async function fetchExerciseAudio(exerciseId: string, signal?: AbortSigna
 
   return await response.blob();
 }
+
+/**
+ * Solicita el audio en formato WAV para la frase fija (cue) indicada.
+ * Catálogo cerrado: descanso, diez-segundos, fin-descanso, fin-rutina (HU 8 / AC-8-2).
+ */
+export async function fetchCueAudio(name: string, signal?: AbortSignal): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/plan/audio/cues/${encodeURIComponent(name)}`, {
+      method: "GET",
+      headers: {
+        Accept: "audio/wav, application/json",
+      },
+      credentials: "include",
+      signal,
+    });
+  } catch (cause) {
+    if ((cause as Error)?.name === "AbortError") throw cause;
+    throw new ApiError(0, NETWORK_ERROR, "No pudimos conectarnos. Revisa tu conexión e intenta de nuevo.");
+  }
+
+  if (!response.ok) {
+    throw await toApiError(response);
+  }
+
+  return await response.blob();
+}
+

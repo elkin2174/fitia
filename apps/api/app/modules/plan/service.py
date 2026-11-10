@@ -12,6 +12,7 @@ from app.core.errors import AppError
 from app.core.rate_limit import RateLimiter
 from app.ai.errors import AIFailure
 from app.ai.gateway import AIGateway, get_ai_gateway
+from app.ai.use_cases.audio_cues import get_cue_text
 from app.ai.use_cases.exercise_audio import (
     AudioCache,
     build_exercise_audio_text,
@@ -456,3 +457,32 @@ class PlanService:
                 "AI_UNAVAILABLE",
                 "El servicio de generación de audio no está disponible temporalmente. Inténtalo más tarde.",
             ) from failure
+
+    async def get_cue_audio(self, user_id: uuid.UUID, cue_name: str) -> bytes:
+        text = get_cue_text(cue_name)
+        if text is None:
+            raise AppError(404, "CUE_NOT_FOUND", "La frase de audio solicitada no existe.")
+
+        window = self._settings.RATE_LIMIT_EXERCISE_AUDIO_WINDOW_MINUTES * 60
+        self._limiter.hit(
+            f"plan:audio:{user_id}",
+            self._settings.RATE_LIMIT_EXERCISE_AUDIO_PER_USER,
+            window,
+        )
+
+        model = self._settings.GEMINI_TTS_MODEL
+        voice = self._settings.GEMINI_TTS_VOICE
+        cache_key = make_cache_key(model, voice, text)
+
+        try:
+            return await self._audio_cache.get_or_compute(
+                cache_key,
+                lambda: self._gateway.synthesize("cue_audio", text),
+            )
+        except AIFailure as failure:
+            raise AppError(
+                503,
+                "AI_UNAVAILABLE",
+                "El servicio de generación de audio no está disponible temporalmente. Inténtalo más tarde.",
+            ) from failure
+

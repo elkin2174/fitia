@@ -264,6 +264,7 @@ export function guidedMachine(state: GuidedState, event: GuidedEvent): GuidedSta
           return {
             ...state,
             status: "announcing",
+            announcementKey: state.announcementKey + 1,
           };
 
         case "next": {
@@ -277,6 +278,7 @@ export function guidedMachine(state: GuidedState, event: GuidedEvent): GuidedSta
               currentSet: 1,
               totalSets: Math.max(1, nextEx.sets),
               previousStatus: null,
+              announcementKey: state.announcementKey + 1,
             };
           }
           return state;
@@ -293,6 +295,7 @@ export function guidedMachine(state: GuidedState, event: GuidedEvent): GuidedSta
               currentSet: 1,
               totalSets: Math.max(1, prevEx.sets),
               previousStatus: null,
+              announcementKey: state.announcementKey + 1,
             };
           }
           return state;

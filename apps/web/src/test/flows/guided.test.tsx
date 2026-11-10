@@ -2,6 +2,8 @@ import { act, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { globalAudioPlayer } from "../../features/voice/AudioPlayer";
 import { globalBrowserFallback } from "../../features/voice/BrowserFallback";
+import { AUDIO_CUES_TEXT } from "../../features/voice/cues";
+
 import {
   ME,
   exerciseFixture,
@@ -162,15 +164,25 @@ describe("HU 7, HU 9 y HU 10 — Modo guiado por voz (/hoy/guiado)", () => {
           headers: { "Content-Type": "audio/wav" },
         }),
       ),
+      http.get(`${API}/plan/audio/cues/:name`, ({ params }) => {
+        const { name } = params;
+        if (typeof name === "string" && ["descanso", "diez-segundos", "fin-descanso", "fin-rutina"].includes(name)) {
+          return new HttpResponse(FAKE_WAV, {
+            headers: { "Content-Type": "audio/wav" },
+          });
+        }
+        return apiError(404, "CUE_NOT_FOUND", "La frase de audio solicitada no existe.");
+      }),
     );
   }
+
 
   it("AC-7-1: con «Entrenar con voz», la app anuncia el primer ejercicio y lee sus pasos con el audio de la HU 3", async () => {
     setupTrainingServer();
     const { user, router } = renderRoute("/hoy", { me: ME });
 
     // Desde la rutina de hoy se ofrece «Entrenar con voz»
-    const trainButton = await screen.findByRole("link", { name: /Entrenar con voz/i });
+    const trainButton = await screen.findByRole("link", { name: /Entrenar con voz/i }, { timeout: 5000 });
     expect(trainButton).toBeInTheDocument();
 
     await user.click(trainButton);
@@ -269,7 +281,7 @@ describe("HU 7, HU 9 y HU 10 — Modo guiado por voz (/hoy/guiado)", () => {
 
     // Plancha frontal Serie 1: esperar play y terminar
     await waitFor(() => {
-      expect(mockPlay).toHaveBeenCalledTimes(2);
+      expect(globalAudioPlayer.getCurrentExerciseId()).toBe(exercise2.id);
     });
     act(() => {
       globalAudioPlayer.getAudio().dispatchEvent(new Event("ended"));
@@ -293,10 +305,12 @@ describe("HU 7, HU 9 y HU 10 — Modo guiado por voz (/hoy/guiado)", () => {
     expect(await screen.findByRole("heading", { name: "¡Rutina completada!" })).toBeInTheDocument();
     expect(screen.getByText(/Terminaste la rutina de hoy. ¡Buen trabajo!/i)).toBeInTheDocument();
 
-    // Frase fija anunciada por síntesis de voz
+    // Frase fija anunciada (con IA vía cue o voz de respaldo)
     await waitFor(() => {
+      const isPlayedByCue = globalAudioPlayer.getCurrentExerciseId() === "cue:fin-rutina";
       const calls = mockSpeak.mock.calls.map((c) => (c[0] as MockSpeechSynthesisUtterance).text);
-      expect(calls.some((t) => t.includes("Terminaste la rutina de hoy. ¡Buen trabajo!"))).toBe(true);
+      const isSpokenByFallback = calls.some((t) => t.includes("Terminaste la rutina de hoy. ¡Buen trabajo!"));
+      expect(isPlayedByCue || isSpokenByFallback).toBe(true);
     });
   });
 
@@ -485,6 +499,9 @@ describe("HU 7, HU 9 y HU 10 — Modo guiado por voz (/hoy/guiado)", () => {
       http.get(`${API}/plan/exercises/:id/audio`, () =>
         apiError(503, "AI_UNAVAILABLE", "Servicio no disponible"),
       ),
+      http.get(`${API}/plan/audio/cues/:name`, () =>
+        new HttpResponse(FAKE_WAV, { headers: { "Content-Type": "audio/wav" } }),
+      ),
     );
 
     const { user } = renderRoute("/hoy/guiado", { me: ME });
@@ -509,4 +526,213 @@ describe("HU 7, HU 9 y HU 10 — Modo guiado por voz (/hoy/guiado)", () => {
 
     expect(await screen.findByRole("button", { name: /Saltar descanso/i })).toBeInTheDocument();
   });
+
+  it("AC-8-1: cuenta regresiva de descanso visible y decreciendo según rest_seconds del plan", async () => {
+    setupTrainingServer();
+    const { user } = renderRoute("/hoy/guiado", { me: ME });
+
+    expect(await screen.findByRole("heading", { name: "Sentadilla libre" })).toBeInTheDocument();
+    await waitFor(() => expect(mockPlay).toHaveBeenCalled());
+    act(() => {
+      globalAudioPlayer.getAudio().dispatchEvent(new Event("ended"));
+    });
+
+    // Pasar a descanso
+    const doneBtn = await screen.findByRole("button", { name: /Terminar serie/i });
+    await user.click(doneBtn);
+
+    // En descanso se muestra el encabezado y el tiempo
+    expect(await screen.findByText("Descanso")).toBeInTheDocument();
+    expect(screen.getByText(/^30 s$/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Saltar descanso/i })).toBeInTheDocument();
+  });
+
+  it("AC-8-2: avisos por voz de descanso, diez segundos y fin de descanso con frases fijas", async () => {
+    const playCueSpy = vi.spyOn(globalAudioPlayer, "playCue");
+    const shortExercise = exerciseFixture({
+      id: "e1111111-1111-1111-1111-111111111111",
+      position: 1,
+      name: "Sentadilla libre",
+      sets: 2,
+      reps: 10,
+      work_seconds: null,
+      rest_seconds: 2,
+      guide: { steps: ["Paso 1"], disclaimer: "Aviso." },
+    });
+
+    server.use(
+      http.get(`${API}/plan/today`, () =>
+        ok(
+          todayPlanFixture({
+            plan_status: "ready",
+            is_weekend: false,
+            day: planDayDetailFixture({
+              status: "training",
+              exercises: [shortExercise],
+            }),
+          }),
+        ),
+      ),
+      http.get(`${API}/plan/exercises/:id/audio`, () =>
+        new HttpResponse(FAKE_WAV, { headers: { "Content-Type": "audio/wav" } }),
+      ),
+      http.get(`${API}/plan/audio/cues/:name`, () =>
+        new HttpResponse(FAKE_WAV, { headers: { "Content-Type": "audio/wav" } }),
+      ),
+    );
+
+    const { user } = renderRoute("/hoy/guiado", { me: ME });
+    expect(await screen.findByRole("heading", { name: "Sentadilla libre" })).toBeInTheDocument();
+    await waitFor(() => expect(mockPlay).toHaveBeenCalled());
+    act(() => {
+      globalAudioPlayer.getAudio().dispatchEvent(new Event("ended"));
+    });
+
+    // Pasar a descanso
+    const doneBtn = await screen.findByRole("button", { name: /Terminar serie/i });
+    await user.click(doneBtn);
+
+    // Al entrar a descanso se solicita y reproduce cue "descanso"
+    await waitFor(() => {
+      expect(playCueSpy).toHaveBeenCalledWith("descanso", expect.anything());
+    });
+  });
+
+  it("AC-8-2: si el descanso original es <= 10 s, no se duplica el aviso de 10 s", async () => {
+    const playCueSpy = vi.spyOn(globalAudioPlayer, "playCue");
+    const exerciseTenSec = exerciseFixture({
+      id: "e1111111-1111-1111-1111-111111111111",
+      position: 1,
+      name: "Sentadilla libre",
+      sets: 2,
+      reps: 10,
+      work_seconds: null,
+      rest_seconds: 10,
+      guide: { steps: ["Paso 1"], disclaimer: "Aviso." },
+    });
+
+    server.use(
+      http.get(`${API}/plan/today`, () =>
+        ok(
+          todayPlanFixture({
+            plan_status: "ready",
+            is_weekend: false,
+            day: planDayDetailFixture({
+              status: "training",
+              exercises: [exerciseTenSec],
+            }),
+          }),
+        ),
+      ),
+      http.get(`${API}/plan/exercises/:id/audio`, () =>
+        new HttpResponse(FAKE_WAV, { headers: { "Content-Type": "audio/wav" } }),
+      ),
+      http.get(`${API}/plan/audio/cues/:name`, () =>
+        new HttpResponse(FAKE_WAV, { headers: { "Content-Type": "audio/wav" } }),
+      ),
+    );
+
+    const { user } = renderRoute("/hoy/guiado", { me: ME });
+    expect(await screen.findByRole("heading", { name: "Sentadilla libre" })).toBeInTheDocument();
+    await waitFor(() => expect(mockPlay).toHaveBeenCalled());
+    act(() => {
+      globalAudioPlayer.getAudio().dispatchEvent(new Event("ended"));
+    });
+
+    const doneBtn = await screen.findByRole("button", { name: /Terminar serie/i });
+    await user.click(doneBtn);
+
+    // En descanso: "descanso" se reproduce
+    await waitFor(() => {
+      expect(playCueSpy).toHaveBeenCalledWith("descanso", expect.anything());
+    });
+
+    // "diez-segundos" NO debe reproducirse porque el descanso total ya era <= 10s
+    expect(playCueSpy).not.toHaveBeenCalledWith("diez-segundos", expect.anything());
+  });
+
+
+  it("AC-8-4: si el audio del cue falla (503 AI_UNAVAILABLE), degrada a la voz del navegador con texto en español", async () => {
+    server.use(
+      http.get(`${API}/plan/today`, () =>
+        ok(
+          todayPlanFixture({
+            plan_status: "ready",
+            is_weekend: false,
+            day: trainingDay,
+          }),
+        ),
+      ),
+      http.get(`${API}/plan/exercises/:id/audio`, () =>
+        new HttpResponse(FAKE_WAV, { headers: { "Content-Type": "audio/wav" } }),
+      ),
+      http.get(`${API}/plan/audio/cues/:name`, () =>
+        apiError(503, "AI_UNAVAILABLE", "Servicio de audio no disponible"),
+      ),
+    );
+
+    const { user } = renderRoute("/hoy/guiado", { me: ME });
+    expect(await screen.findByRole("heading", { name: "Sentadilla libre" })).toBeInTheDocument();
+    await waitFor(() => expect(mockPlay).toHaveBeenCalled());
+    act(() => {
+      globalAudioPlayer.getAudio().dispatchEvent(new Event("ended"));
+    });
+
+    mockSpeak.mockClear();
+    const doneBtn = await screen.findByRole("button", { name: /Terminar serie/i });
+    await user.click(doneBtn);
+
+    // Al fallar el cue con 503, se usa la voz del navegador con la frase de descanso en español
+    await waitFor(() => {
+      const calls = mockSpeak.mock.calls.map((c) => (c[0] as MockSpeechSynthesisUtterance).text);
+      expect(calls).toContain(AUDIO_CUES_TEXT["descanso"]);
+    });
+  });
+
+  it("Pausar en descanso detiene el temporizador y reanudar retoma desde el tiempo restante", async () => {
+    setupTrainingServer();
+    const { user } = renderRoute("/hoy/guiado", { me: ME });
+
+    expect(await screen.findByRole("heading", { name: "Sentadilla libre" })).toBeInTheDocument();
+    await waitFor(() => expect(mockPlay).toHaveBeenCalled());
+    act(() => {
+      globalAudioPlayer.getAudio().dispatchEvent(new Event("ended"));
+    });
+
+    const doneBtn = await screen.findByRole("button", { name: /Terminar serie/i });
+    await user.click(doneBtn);
+
+    expect(await screen.findByText("Descanso")).toBeInTheDocument();
+
+    // Pausar
+    const pauseBtn = screen.getByRole("button", { name: /Pausar/i });
+    await user.click(pauseBtn);
+    expect(screen.getByText("Entrenamiento en pausa")).toBeInTheDocument();
+
+    // Reanudar
+    const resumeBtn = screen.getByRole("button", { name: /Continuar/i });
+    await user.click(resumeBtn);
+    expect(await screen.findByText("Descanso")).toBeInTheDocument();
+  });
+
+  it("Saltar descanso cancela audios y avanza de inmediato a la siguiente serie", async () => {
+    setupTrainingServer();
+    const { user } = renderRoute("/hoy/guiado", { me: ME });
+
+    expect(await screen.findByRole("heading", { name: "Sentadilla libre" })).toBeInTheDocument();
+    await waitFor(() => expect(mockPlay).toHaveBeenCalled());
+    act(() => {
+      globalAudioPlayer.getAudio().dispatchEvent(new Event("ended"));
+    });
+
+    const doneBtn = await screen.findByRole("button", { name: /Terminar serie/i });
+    await user.click(doneBtn);
+
+    const skipBtn = await screen.findByRole("button", { name: /Saltar descanso/i });
+    await user.click(skipBtn);
+
+    // Avanza directamente a la Serie 2
+    expect(await screen.findByText(/Serie 2 de 2/i)).toBeInTheDocument();
+  });
 });
+

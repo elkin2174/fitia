@@ -191,3 +191,18 @@ async def get_exercise_audio(
         media_type="audio/wav",
         headers={"Cache-Control": "private, max-age=86400"},
     )
+
+
+@router.get("/audio/cues/{name:path}")
+async def get_audio_cue(
+    name: str,
+    user: CurrentUser = Depends(require_complete_profile),
+    service: PlanService = Depends(get_plan_service),
+) -> Response:
+    audio_bytes = await service.get_cue_audio(user.id, name)
+    return Response(
+        content=audio_bytes,
+        media_type="audio/wav",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
