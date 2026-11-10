@@ -138,6 +138,18 @@ describe("HU 7, HU 9 y HU 10 — Modo guiado por voz (/hoy/guiado)", () => {
       configurable: true,
       writable: true,
     });
+
+    server.use(
+      http.get(`${API}/plan/audio/cues/:name`, ({ params }) => {
+        const { name } = params;
+        if (typeof name === "string" && ["descanso", "diez-segundos", "fin-descanso", "fin-rutina"].includes(name)) {
+          return new HttpResponse(FAKE_WAV, {
+            headers: { "Content-Type": "audio/wav" },
+          });
+        }
+        return apiError(404, "CUE_NOT_FOUND", "Frase no encontrada");
+      }),
+    );
   });
 
   afterEach(() => {

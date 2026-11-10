@@ -235,7 +235,14 @@ Reparto sugerido **[SUPUESTO]**: Juan Esteban en backend (HU 1, 2 y frases de HU
 
 ## 12. Pendientes y decisiones del equipo
 
-1. Confirmar el modelo y la voz de Gemini TTS tras el paso 0.
-2. Confirmar que la cuota de la API key cubre el uso de audio.
-3. Confirmar los tiempos objetivo tras medir en celular.
-4. Backlog futuro: comandos de voz (STT), pedir ejercicio por voz, preferencias en servidor, métricas de audio y caché persistente.
+1. **Modelo y voz de Gemini TTS [CERRADO]:** Confirmado y fijado el modelo `gemini-3.8-flash-tts` con la voz `Aoede` (timbre femenino claro, prosodia natural en español para instrucciones deportivas y soporte de velocidad). Declarados en `apps/api/app/core/config.py` y `render.yaml`.
+2. **Cuota y costos de la API [CERRADO]:** Protegido mediante triple barrera:
+   - Caché en memoria en backend (`AudioCache` LRU de 512 elementos con coalescencia *single-flight*).
+   - Caché de cliente mediante cabecera HTTP `Cache-Control: private, max-age=86400`.
+   - Límite de tasa (`RATE_LIMIT_EXERCISE_AUDIO_PER_USER=30` en 15 min), circuit breaker de 5 fallos consecutivos y degradación transparente a voz de navegador (`BrowserFallback`).
+3. **Tiempos objetivo y latencia [CONFIRMADO EN PRUEBAS / PENDIENTE CELULAR REAL]:**
+   - Primera generación con IA: ventana de timeout de 15 s; en pruebas con adaptador y simulaciones se cumple el objetivo de $\le 5\text{ s}$.
+   - Reproducciones consecutivas: $\le 1\text{ s}$ garantizado por caché local.
+   - Frases de descanso: $\le 100\text{ ms}$ gracias a la precarga preventiva en el montaje del modo guiado.
+   - *Nota:* La medición en redes móviles y hardware físico heterogéneo se documenta en `docs/mvp2/EVIDENCIA.md` como paso post-despliegue.
+4. **Backlog futuro:** Comandos de voz (STT), solicitar variantes de ejercicio por voz, selector de voz o acento en perfil, métricas de retención de audio y persistencia distribuida de audio (Redis / Object Storage).
