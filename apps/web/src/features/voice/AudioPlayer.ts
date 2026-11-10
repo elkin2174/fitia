@@ -29,6 +29,7 @@ export class AudioPlayer {
   private error: Error | null = null;
   private rate: PlaybackRate = DEFAULT_PLAYBACK_RATE;
   private listeners = new Set<(snapshot: AudioPlayerSnapshot) => void>();
+  private endedListeners = new Set<() => void>();
   private activeAbortController: AbortController | null = null;
   private snapshot: AudioPlayerSnapshot;
 
@@ -73,6 +74,13 @@ export class AudioPlayer {
 
     audio.addEventListener("ended", () => {
       this.setState("paused");
+      for (const listener of this.endedListeners) {
+        try {
+          listener();
+        } catch (err) {
+          console.error("AudioPlayer ended listener error:", err);
+        }
+      }
     });
 
     audio.addEventListener("error", () => {
@@ -274,6 +282,39 @@ export class AudioPlayer {
 
   public isCached(exerciseId: string): boolean {
     return this.cache.has(exerciseId);
+  }
+
+  public onEnded(listener: () => void): () => void {
+    this.endedListeners.add(listener);
+    return () => {
+      this.endedListeners.delete(listener);
+    };
+  }
+
+  public async preload(exerciseId: string, signal?: AbortSignal): Promise<void> {
+    if (this.cache.has(exerciseId)) {
+      return;
+    }
+    try {
+      const blob = await fetchExerciseAudio(exerciseId, signal);
+      if (this.cache.has(exerciseId)) {
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      if (this.cache.size >= this.maxCacheSize) {
+        const firstKey = this.cache.keys().next().value;
+        if (firstKey) {
+          const evicted = this.cache.get(firstKey);
+          if (evicted) {
+            URL.revokeObjectURL(evicted.url);
+          }
+          this.cache.delete(firstKey);
+        }
+      }
+      this.cache.set(exerciseId, { blob, url });
+    } catch {
+      // Ignorar fallos de precarga (no bloquea el modo guiado, se usará fallback al reproducir)
+    }
   }
 
   public getCurrentExerciseId(): string | null {

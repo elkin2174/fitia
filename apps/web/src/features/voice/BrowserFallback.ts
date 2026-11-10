@@ -46,6 +46,7 @@ export class BrowserFallback {
   private currentPhraseIndex = 0;
   private currentExerciseId: string | null = null;
   private listeners = new Set<(snapshot: AudioPlayerSnapshot) => void>();
+  private endedListeners = new Set<() => void>();
   private isCancellingExplicitly = false;
   private snapshot: AudioPlayerSnapshot;
 
@@ -179,6 +180,13 @@ export class BrowserFallback {
         this.speakCurrentPhrase();
       } else {
         this.setState("paused");
+        for (const listener of this.endedListeners) {
+          try {
+            listener();
+          } catch (err) {
+            console.error("BrowserFallback ended listener error:", err);
+          }
+        }
       }
     };
 
@@ -275,6 +283,13 @@ export class BrowserFallback {
 
   public getCurrentExerciseId(): string | null {
     return this.currentExerciseId;
+  }
+
+  public onEnded(listener: () => void): () => void {
+    this.endedListeners.add(listener);
+    return () => {
+      this.endedListeners.delete(listener);
+    };
   }
 }
 
