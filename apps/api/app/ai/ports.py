@@ -28,6 +28,24 @@ class TextGenerator(ABC):
     async def generate(self, request: TextRequest) -> str: ...
 
 
+@dataclass(frozen=True)
+class SpeechRequest:
+    text: str
+    voice: str
+    model: str
+    timeout_seconds: float
+    extra: Mapping[str, Any] = field(default_factory=dict)
+
+
+class SpeechSynthesizer(ABC):
+    """Genera audio a partir de texto (TTS). Devuelve WAV ya empaquetado. Lanza AIProviderError o AIInvalidOutput."""
+
+    model_name: str = "unknown"
+
+    @abstractmethod
+    async def synthesize(self, request: SpeechRequest) -> bytes: ...
+
+
 class AudioProcessor(Protocol):
     """Contrato para una extensión futura (sin implementación)."""
 

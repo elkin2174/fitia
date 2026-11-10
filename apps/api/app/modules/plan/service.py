@@ -10,6 +10,14 @@ from app.core.clock import BOGOTA_TZ, Clock
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.rate_limit import RateLimiter
+from app.ai.errors import AIFailure
+from app.ai.gateway import AIGateway, get_ai_gateway
+from app.ai.use_cases.exercise_audio import (
+    AudioCache,
+    build_exercise_audio_text,
+    get_audio_cache,
+    make_cache_key,
+)
 from app.modules.plan.calendar import (
     CalendarDay,
     NextTrainingDayView,
@@ -130,6 +138,8 @@ class PlanService:
         limiter: RateLimiter,
         scheduler: PlanJobScheduler,
         job: PlanGenerationJob,
+        gateway: AIGateway | None = None,
+        audio_cache: AudioCache | None = None,
     ) -> None:
         self._session = session
         self._repo = PlanRepository(session)
@@ -139,6 +149,8 @@ class PlanService:
         self._limiter = limiter
         self._scheduler = scheduler
         self._job = job
+        self._gateway = gateway if gateway is not None else get_ai_gateway()
+        self._audio_cache = audio_cache if audio_cache is not None else get_audio_cache()
 
     async def _expire_stale(self, user_id: uuid.UUID) -> None:
         threshold = self._clock.now() - timedelta(seconds=self._settings.PLAN_STALE_SECONDS)
@@ -411,3 +423,36 @@ class PlanService:
             steps=list(exercise.steps),
             disclaimer=EXERCISE_DISCLAIMER,
         )
+
+    async def get_exercise_audio(self, user_id: uuid.UUID, exercise_id: uuid.UUID) -> bytes:
+        await self._expire_stale(user_id)
+        today = self._clock.today_date()
+        week_start, _ = target_week(today)
+
+        exercise = await self._repo.get_exercise_guide(user_id, week_start, exercise_id)
+        if exercise is None:
+            raise AppError(404, "EXERCISE_NOT_FOUND", "No se encontró el ejercicio solicitado en tu plan vigente.")
+
+        window = self._settings.RATE_LIMIT_EXERCISE_AUDIO_WINDOW_MINUTES * 60
+        self._limiter.hit(
+            f"plan:audio:{user_id}",
+            self._settings.RATE_LIMIT_EXERCISE_AUDIO_PER_USER,
+            window,
+        )
+
+        text = build_exercise_audio_text(exercise.name, exercise.steps, EXERCISE_DISCLAIMER)
+        model = self._settings.GEMINI_TTS_MODEL
+        voice = self._settings.GEMINI_TTS_VOICE
+        cache_key = make_cache_key(model, voice, text)
+
+        try:
+            return await self._audio_cache.get_or_compute(
+                cache_key,
+                lambda: self._gateway.synthesize("exercise_audio", text),
+            )
+        except AIFailure as failure:
+            raise AppError(
+                503,
+                "AI_UNAVAILABLE",
+                "El servicio de generación de audio no está disponible temporalmente. Inténtalo más tarde.",
+            ) from failure

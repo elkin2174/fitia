@@ -25,6 +25,12 @@
       "skillPath": "skills/gemini-api-dev/SKILL.md",
       "computedHash": "c46a217af00d51896982e6f4998e7dce5396f72834b7203da496009b7e9e7296"
     },
+    "gh": {
+      "source": "cli/cli",
+      "sourceType": "github",
+      "skillPath": "skills/gh/SKILL.md",
+      "computedHash": "14491e9b88549edfa42fb0b0ede017cad9a385011f3af633d38916efc2cea200"
+    },
     "motion-graphics": {
       "source": "heygen-com/hyperframes",
       "sourceType": "github",

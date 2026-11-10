@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from app.ai.call_log import CallLogEntry, CallRecorder, DbCallRecorder
 from app.ai.errors import AIFailure, AIInvalidOutput, AIProviderError, CallStatus
-from app.ai.ports import TextGenerator, TextRequest
+from app.ai.ports import SpeechRequest, SpeechSynthesizer, TextGenerator, TextRequest
 from app.ai.privacy import PrivacyGuard
 from app.ai.registry import PromptRegistry, get_prompt_registry
 from app.ai.resilience import RETRY_BACKOFF_SECONDS, CircuitBreaker, SleepFn, TimeFn, real_sleep
@@ -57,6 +57,7 @@ class AIGateway:
         recorder: CallRecorder,
         clock: Clock,
         registry: PromptRegistry | None = None,
+        synthesizer: SpeechSynthesizer | None = None,
         time_fn: TimeFn = time.monotonic,
         sleep: SleepFn = real_sleep,
     ) -> None:
@@ -66,6 +67,7 @@ class AIGateway:
         self._recorder = recorder
         self._clock = clock
         self._registry = registry or get_prompt_registry()
+        self._synthesizer = synthesizer or build_synthesizer(settings)
         self._time = time_fn
         self._sleep = sleep
 
@@ -156,6 +158,75 @@ class AIGateway:
             logger.info("ai_retry", extra={"use_case": use_case.name, "reason": kind})
             await self._sleep(RETRY_BACKOFF_SECONDS)
 
+    async def synthesize(self, use_case_name: str, text: str) -> bytes:
+        started = self._time()
+        attempts = 0
+        model = self._settings.GEMINI_TTS_MODEL
+        voice = self._settings.GEMINI_TTS_VOICE
+        logged_model = self._synthesizer.model_name or model
+
+        async def finish(status: CallStatus) -> int:
+            latency_ms = int((self._time() - started) * 1000)
+            await self._recorder.record(
+                CallLogEntry(
+                    use_case=use_case_name,
+                    prompt_version="v1",
+                    model=logged_model,
+                    status=status,
+                    latency_ms=latency_ms,
+                    attempts=attempts,
+                    created_at=self._clock.now(),
+                )
+            )
+            return latency_ms
+
+        if not self._settings.AI_ENABLED:
+            raise AIFailure(CODE_UNAVAILABLE, "disabled", latency_ms=await finish("disabled"))
+
+        budget = self._settings.AI_TOTAL_BUDGET_SECONDS
+        while True:
+            if not self.breaker.allow():
+                raise AIFailure(
+                    CODE_UNAVAILABLE, "breaker_open", attempts=attempts, latency_ms=await finish("breaker_open")
+                )
+            remaining = budget - (self._time() - started)
+            timeout = max(0.1, min(self._settings.AI_TIMEOUT_SECONDS, remaining))
+            attempts += 1
+            request = SpeechRequest(
+                text=text,
+                voice=voice,
+                model=model,
+                timeout_seconds=timeout,
+            )
+            try:
+                try:
+                    audio_bytes = await asyncio.wait_for(self._synthesizer.synthesize(request), timeout)
+                except TimeoutError as exc:
+                    raise AIProviderError("timeout") from exc
+                self.breaker.record_success()
+                await finish("ok")
+                return audio_bytes
+            except AIProviderError as exc:
+                self.breaker.record_failure()
+                kind = exc.kind
+                code = CODE_TIMEOUT if kind == "timeout" else CODE_UNAVAILABLE
+                status: CallStatus = "timeout" if kind == "timeout" else "provider_error"
+            except AIInvalidOutput:
+                self.breaker.record_success()
+                kind = "invalid_output"
+                code, status = CODE_INVALID_OUTPUT, "invalid_output"
+
+            elapsed = self._time() - started
+            can_retry = (
+                kind in {"timeout", "rate_limited", "server_error", "network"}
+                and attempts <= 1
+                and budget - elapsed - RETRY_BACKOFF_SECONDS >= self._settings.AI_RETRY_MIN_REMAINING_SECONDS
+            )
+            if not can_retry:
+                raise AIFailure(code, status, attempts=attempts, latency_ms=await finish(status))
+            logger.info("ai_tts_retry", extra={"use_case": use_case_name, "reason": kind})
+            await self._sleep(RETRY_BACKOFF_SECONDS)
+
 
 _gateway: AIGateway | None = None
 
@@ -168,6 +239,16 @@ def build_generator(settings: Settings) -> TextGenerator:
     from app.ai.adapters.fake_text import FakeTextAdapter
 
     return FakeTextAdapter()
+
+
+def build_synthesizer(settings: Settings) -> SpeechSynthesizer:
+    if settings.AI_PROVIDER == "gemini":
+        from app.ai.adapters.gemini_speech import GeminiSpeechAdapter
+
+        return GeminiSpeechAdapter(api_key=settings.GEMINI_API_KEY)
+    from app.ai.adapters.fake_speech import FakeSpeechAdapter
+
+    return FakeSpeechAdapter()
 
 
 def get_ai_gateway() -> AIGateway:
@@ -183,5 +264,6 @@ def get_ai_gateway() -> AIGateway:
             ),
             recorder=DbCallRecorder(get_sessionmaker()),
             clock=Clock(),
+            synthesizer=build_synthesizer(settings),
         )
     return _gateway

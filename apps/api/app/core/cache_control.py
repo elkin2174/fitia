@@ -28,7 +28,10 @@ class NoStoreMiddleware:
 
         async def _send(message: Message) -> None:
             if message["type"] == "http.response.start":
-                MutableHeaders(scope=message)["Cache-Control"] = "no-store"
+                headers = MutableHeaders(scope=message)
+                existing_cc = headers.get("cache-control", "")
+                if not (scope["method"] in _SAFE_METHODS and existing_cc.startswith("private")):
+                    headers["Cache-Control"] = "no-store"
             await send(message)
 
         await self.app(scope, receive, _send)

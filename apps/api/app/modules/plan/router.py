@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.ai.gateway import AIGateway, get_ai_gateway
@@ -45,8 +45,11 @@ def get_plan_service(
     limiter: RateLimiter = Depends(get_rate_limiter),
     scheduler: PlanJobScheduler = Depends(get_plan_scheduler),
     job: PlanGenerationJob = Depends(get_plan_job),
+    gateway: AIGateway = Depends(get_ai_gateway),
 ) -> PlanService:
-    return PlanService(session, settings, clock, ProfileService(session, clock), limiter, scheduler, job)
+    return PlanService(
+        session, settings, clock, ProfileService(session, clock), limiter, scheduler, job, gateway=gateway
+    )
 
 
 @router.post("/generate", status_code=status.HTTP_202_ACCEPTED, response_model=GeneratePlanResponse)
@@ -173,4 +176,18 @@ async def get_exercise_guide(
         name=view.name,
         steps=view.steps,
         disclaimer=view.disclaimer,
+    )
+
+
+@router.get("/exercises/{exercise_id}/audio")
+async def get_exercise_audio(
+    exercise_id: uuid.UUID,
+    user: CurrentUser = Depends(require_complete_profile),
+    service: PlanService = Depends(get_plan_service),
+) -> Response:
+    audio_bytes = await service.get_exercise_audio(user.id, exercise_id)
+    return Response(
+        content=audio_bytes,
+        media_type="audio/wav",
+        headers={"Cache-Control": "private, max-age=86400"},
     )
