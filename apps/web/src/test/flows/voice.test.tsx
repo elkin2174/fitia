@@ -1,6 +1,7 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { globalAudioPlayer } from "../../features/voice/AudioPlayer";
+import { globalBrowserFallback } from "../../features/voice/BrowserFallback";
 import {
   PLAYBACK_RATE_STORAGE_KEY,
 } from "../../features/voice/playbackRate";
@@ -14,12 +15,37 @@ import {
 import { pathOf, renderRoute } from "../render";
 import { API, apiError, http, HttpResponse, ok, sent, server } from "../server";
 
-describe("HU 3, HU 4 y HU 5 — Audio de ejercicios (síntesis de voz)", () => {
+class MockSpeechSynthesisUtterance extends EventTarget {
+  text: string;
+  lang = "es-ES";
+  rate = 1;
+  voice: SpeechSynthesisVoice | null = null;
+  onend: ((event: Event) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+
+  constructor(text = "") {
+    super();
+    this.text = text;
+  }
+}
+
+describe("HU 3, HU 4, HU 5 y HU 6 — Audio de ejercicios y respaldo con voz del navegador", () => {
   let mockPlay: ReturnType<typeof vi.fn>;
   let mockPause: ReturnType<typeof vi.fn>;
   let mockLoad: ReturnType<typeof vi.fn>;
   let mockCreateObjectURL: ReturnType<typeof vi.fn>;
   let mockRevokeObjectURL: ReturnType<typeof vi.fn>;
+  let mockSpeak: ReturnType<typeof vi.fn>;
+  let mockCancel: ReturnType<typeof vi.fn>;
+  let mockGetVoices: ReturnType<typeof vi.fn>;
+
+  const SPANISH_VOICE = {
+    name: "Spanish Female Voice",
+    lang: "es-CO",
+    default: true,
+    localService: true,
+    voiceURI: "es-co-female",
+  } as SpeechSynthesisVoice;
 
   const FAKE_WAV = new Uint8Array([82, 73, 70, 70, 36, 0, 0, 0, 87, 65, 86, 69]); // RIFF...WAVE
 
@@ -27,6 +53,7 @@ describe("HU 3, HU 4 y HU 5 — Audio de ejercicios (síntesis de voz)", () => {
     localStorage.clear();
     globalAudioPlayer.stop();
     globalAudioPlayer.clearCache();
+    globalBrowserFallback.stop();
 
     mockPlay = vi.fn().mockImplementation(async function (this: HTMLAudioElement) {
       this.dispatchEvent(new Event("play"));
@@ -44,11 +71,25 @@ describe("HU 3, HU 4 y HU 5 — Audio de ejercicios (síntesis de voz)", () => {
     window.HTMLMediaElement.prototype.load = mockLoad as unknown as () => void;
     window.URL.createObjectURL = mockCreateObjectURL as unknown as (obj: Blob | MediaSource) => string;
     window.URL.revokeObjectURL = mockRevokeObjectURL as unknown as (url: string) => void;
+
+    mockSpeak = vi.fn();
+    mockCancel = vi.fn();
+    mockGetVoices = vi.fn().mockReturnValue([SPANISH_VOICE]);
+
+    (window as any).SpeechSynthesisUtterance = MockSpeechSynthesisUtterance;
+    (window as any).speechSynthesis = {
+      getVoices: mockGetVoices,
+      speak: mockSpeak,
+      cancel: mockCancel,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
   });
 
   afterEach(() => {
     globalAudioPlayer.stop();
     globalAudioPlayer.clearCache();
+    globalBrowserFallback.stop();
     localStorage.clear();
     vi.restoreAllMocks();
   });
@@ -82,7 +123,7 @@ describe("HU 3, HU 4 y HU 5 — Audio de ejercicios (síntesis de voz)", () => {
     return { exercise, todayData };
   }
 
-  it("AC-3-1: al pulsar «Escuchar» se pide el audio y se llama a play", async () => {
+  it("AC-3-1: al pulsar «Escuchar» se pide el audio con IA y NO se usa la voz del navegador si funciona", async () => {
     const { exercise } = setupExercise();
     const { user } = renderRoute(`/hoy?ejercicio=${exercise.id}`, { me: ME });
 
@@ -95,6 +136,9 @@ describe("HU 3, HU 4 y HU 5 — Audio de ejercicios (síntesis de voz)", () => {
 
     expect(sent("GET", `/plan/exercises/${exercise.id}/audio`)).toHaveLength(1);
     expect(mockPlay).toHaveBeenCalledTimes(1);
+    // Como la IA funcionó correctamente, no se usó el respaldo del navegador
+    expect(mockSpeak).not.toHaveBeenCalled();
+    expect(screen.queryByText("Voz del dispositivo")).not.toBeInTheDocument();
   });
 
   it("AC-3-2: durante la carga aparece «Preparando audio…» y clics repetidos no duplican peticiones", async () => {
@@ -310,9 +354,15 @@ describe("HU 3, HU 4 y HU 5 — Audio de ejercicios (síntesis de voz)", () => {
     expect(localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY)).toBe("0.75");
   });
 
-  it("error 503 AI_UNAVAILABLE muestra mensaje en español y permite reintentar", async () => {
-    const exercise = exerciseFixture({ id: "e-fail" });
-    let attempts = 0;
+  it("AC-6-1: si el endpoint responde 503 AI_UNAVAILABLE, conmuta automáticamente a voz del navegador en español en orden", async () => {
+    const exercise = exerciseFixture({
+      id: "e-fail-503",
+      name: "Flexión de pecho",
+      guide: {
+        steps: ["Coloca las manos en el piso.", "Baja el pecho controlando."],
+        disclaimer: "Aviso orientativo.",
+      },
+    });
 
     server.use(
       http.get(
@@ -320,11 +370,7 @@ describe("HU 3, HU 4 y HU 5 — Audio de ejercicios (síntesis de voz)", () => {
         () => ok(todayPlanFixture({ day: planDayDetailFixture({ exercises: [exercise] }) })),
       ),
       http.get(`${API}/plan/exercises/${exercise.id}/audio`, () => {
-        attempts += 1;
-        if (attempts === 1) {
-          return apiError(503, "AI_UNAVAILABLE", "El servicio de IA no está disponible.");
-        }
-        return new HttpResponse(FAKE_WAV, { headers: { "Content-Type": "audio/wav" } });
+        return apiError(503, "AI_UNAVAILABLE", "Servicio no disponible.");
       }),
     );
 
@@ -333,17 +379,179 @@ describe("HU 3, HU 4 y HU 5 — Audio de ejercicios (síntesis de voz)", () => {
 
     await user.click(screen.getByRole("button", { name: "Escuchar" }));
 
-    // Muestra banner de error en español
+    // No se pudo reproducir WAV con IA
+    expect(mockPlay).not.toHaveBeenCalled();
+
+    // Conmutó automáticamente a la voz del navegador
+    expect(mockSpeak).toHaveBeenCalled();
+    const firstUtterance = mockSpeak.mock.calls[0]![0];
+    expect(firstUtterance.text).toBe("Flexión de pecho");
+
+    // Indicador discreto «Voz del dispositivo»
+    expect(await screen.findByText("Voz del dispositivo")).toBeInTheDocument();
+
+    // Simular lectura de pasos sucesivos
+    firstUtterance.onend?.(new Event("end"));
+    const secondUtterance = mockSpeak.mock.calls[1]![0];
+    expect(secondUtterance.text).toBe("Paso 1: Coloca las manos en el piso.");
+
+    secondUtterance.onend?.(new Event("end"));
+    const thirdUtterance = mockSpeak.mock.calls[2]![0];
+    expect(thirdUtterance.text).toBe("Paso 2: Baja el pecho controlando.");
+
+    thirdUtterance.onend?.(new Event("end"));
+    const fourthUtterance = mockSpeak.mock.calls[3]![0];
+    expect(fourthUtterance.text).toBe("Aviso orientativo.");
+  });
+
+  it("AC-6-1: si el endpoint tarda más de 15 s, se aborta y se conmuta a la voz del navegador", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const exercise = exerciseFixture({ id: "e-slow-timeout" });
+    const pendingPromise = new Promise<Response>(() => {}); // Nunca resuelve
+
+    server.use(
+      http.get(
+        `${API}/plan/today`,
+        () => ok(todayPlanFixture({ day: planDayDetailFixture({ exercises: [exercise] }) })),
+      ),
+      http.get(`${API}/plan/exercises/${exercise.id}/audio`, () => pendingPromise),
+    );
+
+    const { user } = renderRoute(`/hoy?ejercicio=${exercise.id}`, {
+      me: ME,
+      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+    });
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Escuchar" }));
+
+    // Inicialmente cargando IA
+    expect(mockSpeak).not.toHaveBeenCalled();
+
+    // Avanzar 15 segundos con temporizadores falsos
+    await act(async () => {
+      vi.advanceTimersByTime(15000);
+    });
+
+    // Debe haberse activado el fallback a voz del navegador
+    expect(mockSpeak).toHaveBeenCalled();
+    expect(await screen.findByText("Voz del dispositivo")).toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it("AC-6-2: sin soporte de voz en el navegador ni voces en español, botón queda deshabilitado con aviso", async () => {
+    mockGetVoices.mockReturnValue([]); // Cero voces en español
+
+    const exercise = exerciseFixture({
+      id: "e-no-voices",
+      guide: {
+        steps: ["Separa los pies al ancho de los hombros."],
+        disclaimer: EXERCISE_DISCLAIMER,
+      },
+    });
+    server.use(
+      http.get(
+        `${API}/plan/today`,
+        () => ok(todayPlanFixture({ day: planDayDetailFixture({ exercises: [exercise] }) })),
+      ),
+      http.get(`${API}/plan/exercises/${exercise.id}/audio`, () => {
+        return apiError(503, "AI_UNAVAILABLE");
+      }),
+    );
+
+    const { user } = renderRoute(`/hoy?ejercicio=${exercise.id}`, { me: ME });
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Escuchar" }));
+
+    // Botón queda deshabilitado y se muestra aviso en español (AC-6-2)
+    const btn = screen.getByRole("button", { name: "Escuchar" });
+    expect(btn).toBeDisabled();
+    expect(
+      await screen.findByText(
+        "Tu dispositivo no tiene voz en español disponible. Puedes leer la explicación en pantalla.",
+      ),
+    ).toBeInTheDocument();
+
+    // Los pasos en texto siguen intactos y visibles
+    expect(screen.getByText("Separa los pies al ancho de los hombros.")).toBeInTheDocument();
+  });
+
+  it("AC-6-3: error a mitad de lectura detiene el audio y el sheet permanece usable", async () => {
+    const exercise = exerciseFixture({ id: "e-mid-error" });
+    server.use(
+      http.get(
+        `${API}/plan/today`,
+        () => ok(todayPlanFixture({ day: planDayDetailFixture({ exercises: [exercise] }) })),
+      ),
+      http.get(`${API}/plan/exercises/${exercise.id}/audio`, () => {
+        return apiError(503, "AI_UNAVAILABLE");
+      }),
+    );
+
+    const { user } = renderRoute(`/hoy?ejercicio=${exercise.id}`, { me: ME });
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Escuchar" }));
+    expect(mockSpeak).toHaveBeenCalled();
+
+    // Simular error a mitad de la frase
+    const utterance = mockSpeak.mock.calls[0]![0];
+    act(() => {
+      utterance.onerror?.({ error: "audio-busy" });
+    });
+
+    // Muestra el banner de error sin bloquear la interfaz
     expect(await screen.findByText("No pudimos generar el audio")).toBeInTheDocument();
-    expect(screen.getByText("El servicio de IA no está disponible.")).toBeInTheDocument();
+    expect(screen.getByText("Ocurrió un error en la síntesis de voz del dispositivo.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
 
-    // Reintentar
-    const retryBtn = screen.getByRole("button", { name: "Reintentar" });
-    await user.click(retryBtn);
+    // La hoja sigue operativa y el botón de cerrar funciona
+    const closeBtn = screen.getByRole("button", { name: "Cerrar explicación" });
+    await user.click(closeBtn);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 
-    // Segundo intento exitoso
-    expect(attempts).toBe(2);
-    expect(mockPlay).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("No pudimos generar el audio")).not.toBeInTheDocument();
+  it("pausa, repetir y velocidad funcionan con el motor de respaldo del navegador", async () => {
+    const exercise = exerciseFixture({ id: "e-fallback-controls" });
+    server.use(
+      http.get(
+        `${API}/plan/today`,
+        () => ok(todayPlanFixture({ day: planDayDetailFixture({ exercises: [exercise] }) })),
+      ),
+      http.get(`${API}/plan/exercises/${exercise.id}/audio`, () => {
+        return apiError(503, "AI_UNAVAILABLE");
+      }),
+    );
+
+    const { user } = renderRoute(`/hoy?ejercicio=${exercise.id}`, { me: ME });
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Escuchar" }));
+    expect(mockSpeak).toHaveBeenCalled();
+
+    // Pausar con motor de respaldo
+    const pauseBtn = await screen.findByRole("button", { name: "Pausar" });
+    await user.click(pauseBtn);
+    expect(mockCancel).toHaveBeenCalled();
+
+    // Reanudar
+    const resumeBtn = screen.getByRole("button", { name: "Reanudar" });
+    await user.click(resumeBtn);
+    expect(mockSpeak).toHaveBeenCalledTimes(2);
+
+    // Repetir
+    const repeatBtn = screen.getByRole("button", { name: "Repetir" });
+    await user.click(repeatBtn);
+    expect(mockCancel).toHaveBeenCalled();
+    const lastCall = mockSpeak.mock.calls[mockSpeak.mock.calls.length - 1]![0];
+    expect(lastCall.text).toBe(exercise.name);
+
+    // Cambiar velocidad
+    const btn125 = screen.getByRole("button", { name: "Velocidad 1,25×" });
+    await user.click(btn125);
+    expect(localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY)).toBe("1.25");
   });
 });

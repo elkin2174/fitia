@@ -9,6 +9,7 @@ export interface PlaybackControlsProps {
   isLoading: boolean;
   rate: PlaybackRate;
   error: Error | null;
+  isFallback?: boolean;
   onPlay: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -24,6 +25,7 @@ export function PlaybackControls({
   isLoading,
   rate,
   error,
+  isFallback = false,
   onPlay,
   onPause,
   onResume,
@@ -35,7 +37,27 @@ export function PlaybackControls({
 
   return (
     <div className="flex flex-col gap-3 rounded-[var(--radius-control)] border-2 border-line bg-surface-2 p-3">
-      {/* Estado de error con reintento (HU 3) */}
+      {/* Indicador discreto del motor utilizado (HU 6) */}
+      {isFallback && hasAudio && (
+        <div className="flex items-center justify-between border-b border-line/60 pb-2">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-muted border border-line"
+            title="Reproduciendo con la voz configurada en tu navegador o sistema operativo"
+          >
+            <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
+              />
+            </svg>
+            <span>Voz del dispositivo</span>
+          </span>
+        </div>
+      )}
+
+      {/* Estado de error con reintento (HU 3, HU 6) */}
       {error && (
         <Banner
           tone="danger"
@@ -52,12 +74,6 @@ export function PlaybackControls({
           }
         >
           {error.message || "Ocurrió un error al preparar la explicación hablada."}
-          {/*
-            PUNTO DE EXTENSIÓN PARA HU 6 (Respaldo con voz del navegador):
-            Cuando el servicio de audio IA falle (503 AI_UNAVAILABLE o error de red),
-            aquí se activará el sintetizador nativo window.speechSynthesis como
-            mecanismo de respaldo transparente para el estudiante.
-          */}
         </Banner>
       )}
 

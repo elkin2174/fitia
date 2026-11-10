@@ -16,7 +16,9 @@ export function ExerciseGuideSheet({ exercise, onClose }: ExerciseGuideSheetProp
     isLoading,
     isPlaying,
     isPaused,
+    isUnavailable,
     hasAudio,
+    isFallback,
     rate,
     error,
     play,
@@ -25,7 +27,7 @@ export function ExerciseGuideSheet({ exercise, onClose }: ExerciseGuideSheetProp
     restart,
     stop,
     setRate,
-  } = useExerciseAudio(exercise?.id ?? null);
+  } = useExerciseAudio(exercise);
 
   // AC-3-4: si se cierra la explicación o se cambia de ejercicio, el audio se detiene
   useEffect(() => {
@@ -49,13 +51,14 @@ export function ExerciseGuideSheet({ exercise, onClose }: ExerciseGuideSheetProp
       closeLabel="Cerrar explicación"
     >
       <div className="flex flex-col gap-5">
-        {/* Controles de audio de la explicación (HU 3, HU 4, HU 5) */}
+        {/* Controles de audio de la explicación (HU 3, HU 4, HU 5, HU 6) */}
         <div className="flex flex-col gap-3 border-b border-line pb-4" aria-label="Audio de la explicación">
           <div className="flex items-center justify-between gap-3">
             <ListenButton
               onListen={play}
               isLoading={isLoading}
               isPlaying={isPlaying}
+              isUnavailable={isUnavailable}
             />
           </div>
 
@@ -64,6 +67,7 @@ export function ExerciseGuideSheet({ exercise, onClose }: ExerciseGuideSheetProp
             isPlaying={isPlaying}
             isPaused={isPaused}
             isLoading={isLoading}
+            isFallback={isFallback}
             rate={rate}
             error={error}
             onPlay={play}

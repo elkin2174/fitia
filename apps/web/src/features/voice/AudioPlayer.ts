@@ -6,7 +6,7 @@ import {
   type PlaybackRate,
 } from "./playbackRate";
 
-export type AudioPlayerState = "idle" | "loading" | "playing" | "paused" | "error";
+export type AudioPlayerState = "idle" | "loading" | "playing" | "paused" | "error" | "unavailable";
 
 export interface AudioPlayerSnapshot {
   state: AudioPlayerState;
